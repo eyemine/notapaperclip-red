@@ -1,7 +1,7 @@
 # notapaperclip.red — Next.js App
 
-Standalone swarm verification portal for GhostAgent.ninja.  
-Calls Cloudflare Worker KV directly — no dependency on ghostagent.ninja.
+The Independent Trust Oracle for AI Agents. 
+A standalone, zero-dependency verification portal for ERC-8004 identities, A2A Agent Cards, and MCP endpoints. Optimized for GhostAgent.ninja and nftmail.box sovereign identities.
 
 ## Routes
 
