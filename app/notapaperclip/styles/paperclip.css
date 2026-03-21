@@ -1,0 +1,87 @@
+/* Paperclip Rain Animation - GPU Optimized */
+
+/* Container - behind all content */
+.paperclip-rain {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+  z-index: 1;
+  overflow: hidden;
+}
+
+/* Base paperclip styles */
+.paperclip {
+  position: absolute;
+  top: -50px;
+  will-change: transform;
+  backface-visibility: hidden;
+  opacity: 0.3;
+}
+
+/* Variant 1: Clockwise rotation */
+.fall {
+  animation: fall 4s linear forwards;
+}
+
+/* Variant 2: Anti-clockwise rotation */
+.fall-anti {
+  animation: fall-anti 4s linear forwards;
+}
+
+/* Variant 3: Mirror + clockwise */
+.fall-mirror {
+  animation: fall 4s linear forwards;
+  transform: scaleX(-1);
+}
+
+/* Variant 4: Mirror + anti-clockwise */
+.fall-mirror-anti {
+  animation: fall-anti 4s linear forwards;
+  transform: scaleX(-1);
+}
+
+/* Clockwise fall animation */
+@keyframes fall {
+  0% {
+    transform: translateY(0) rotate(0deg);
+    opacity: 0;
+  }
+  5% {
+    opacity: 0.3;
+  }
+  100% {
+    transform: translateY(calc(100vh + 100px)) rotate(360deg);
+    opacity: 0.3;
+  }
+}
+
+/* Anti-clockwise fall animation */
+@keyframes fall-anti {
+  0% {
+    transform: translateY(0) rotate(0deg);
+    opacity: 0;
+  }
+  5% {
+    opacity: 0.3;
+  }
+  100% {
+    transform: translateY(calc(100vh + 100px)) rotate(-360deg);
+    opacity: 0.3;
+  }
+}
+
+/* Z-index layering */
+.navbar {
+  z-index: 10;
+}
+
+.buttons, .panels {
+  z-index: 20;
+}
+
+.content {
+  z-index: 30;
+}

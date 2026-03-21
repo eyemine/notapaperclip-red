@@ -1,0 +1,5 @@
+.env*
+.synthesis-credentials
+node_modules/
+.next/
+*.zip

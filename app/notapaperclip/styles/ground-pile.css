@@ -1,0 +1,54 @@
+/* Static ground pile - zero animation cost */
+.ground-pile {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  width: 100vw;
+  height: 200px;
+  pointer-events: none;
+  z-index: 1;
+  overflow: hidden;
+  background: linear-gradient(to top, rgba(0,0,0,0.05) 0%, transparent 100%);
+}
+
+.ground-clip {
+  position: absolute;
+  bottom: 0;
+  color: var(--muted);
+  will-change: transform; /* GPU acceleration */
+  backface-visibility: hidden; /* Prevent flicker */
+  animation: none; /* Static pile - zero render cost */
+}
+
+/* Layer depth perception */
+.ground-clip:nth-child(1) { opacity: 0.30; } /* Oldest - darkest */
+.ground-clip:nth-child(2) { opacity: 0.31; }
+.ground-clip:nth-child(3) { opacity: 0.32; }
+.ground-clip:nth-child(4) { opacity: 0.33; }
+.ground-clip:nth-child(5) { opacity: 0.34; }
+.ground-clip:nth-child(6) { opacity: 0.35; }
+.ground-clip:nth-child(7) { opacity: 0.36; }
+.ground-clip:nth-child(8) { opacity: 0.37; }
+.ground-clip:nth-child(9) { opacity: 0.38; }
+.ground-clip:nth-child(10) { opacity: 0.39; }
+.ground-clip:nth-child(11) { opacity: 0.40; }
+.ground-clip:nth-child(12) { opacity: 0.41; }
+.ground-clip:nth-child(13) { opacity: 0.42; }
+.ground-clip:nth-child(14) { opacity: 0.43; }
+.ground-clip:nth-child(15) { opacity: 0.44; }
+.ground-clip:nth-child(16) { opacity: 0.45; }
+.ground-clip:nth-child(17) { opacity: 0.46; }
+.ground-clip:nth-child(18) { opacity: 0.47; }
+.ground-clip:nth-child(19) { opacity: 0.48; }
+.ground-clip:nth-child(20) { opacity: 0.49; } /* Newest - lightest */
+
+/* Ensure content stays above ground pile */
+.navbar, .page-wrap, .page-wrap-wide, .site-footer {
+  position: relative;
+  z-index: 10;
+}
+
+.card, .search-row, .btn-primary, .btn-secondary, .search-input {
+  position: relative;
+  z-index: 20;
+}
