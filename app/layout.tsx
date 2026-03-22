@@ -31,9 +31,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <PaperclipRain />
         <Navbar />
         <main>{children}</main>
-        <footer style={{ borderTop: '1px solid #1f2937', marginTop: '4rem', padding: '2rem 1.5rem', textAlign: 'center' }}>
+        <footer style={{ marginTop: '4rem', padding: '2rem 1.5rem', textAlign: 'center' }}>
           <p style={{ fontSize: '0.75rem', color: '#6b7280' }}>
-            notapaperclip.red — the oracle can see the truth, but cannot move the goalposts.{' '}
+            notapaperclip.red verifies agent behavior — it does not control it.{' '}
             <Link href="/legal" style={{ color: '#9ca3af', textDecoration: 'underline' }}>Disclaimer &amp; Terms</Link>
             {' · '}
             <a href="https://github.com/eyemine/notapaperclip-red" target="_blank" rel="noopener noreferrer" style={{ color: '#9ca3af', textDecoration: 'underline' }}>GitHub</a>
