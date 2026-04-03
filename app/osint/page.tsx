@@ -2,6 +2,14 @@
 
 import { useState } from 'react';
 
+const CHAINS = [
+  { key: 'gnosis',      label: 'Gnosis',       chainId: 100,   explorer: 'https://gnosisscan.io/tx/' },
+  { key: 'base',        label: 'Base',         chainId: 8453,  explorer: 'https://basescan.org/tx/' },
+  { key: 'baseSepolia', label: 'Base Sepolia', chainId: 84532, explorer: 'https://sepolia.basescan.org/tx/' },
+];
+
+type LookupMode = 'agent' | 'token' | 'email';
+
 interface FootprintData {
   agent: string;
   onChain: {
@@ -19,11 +27,13 @@ interface FootprintData {
     surgeScore: number;
     mcpServers: string[];
     genomeUrl: string | null;
+    hasX402Capability: boolean;
   };
   exposure: {
     hasPublicEndpoints: boolean;
     hasMCPServers: boolean;
     hasGenomeMetadata: boolean;
+    hasX402Capability: boolean;
     riskLevel: 'low' | 'medium' | 'high';
   };
 }
@@ -76,6 +86,8 @@ interface X402Data {
 }
 
 export default function OSINTDashboard() {
+  const [mode, setMode] = useState<LookupMode>('agent');
+  const [chain, setChain] = useState('gnosis');
   const [agentName, setAgentName] = useState('');
   const [loading, setLoading] = useState(false);
   const [footprint, setFootprint] = useState<FootprintData | null>(null);
@@ -95,13 +107,19 @@ export default function OSINTDashboard() {
     setX402(null);
 
     try {
-      // Fetch all three modules in parallel - pass the raw query to let API resolve it
-      const encodedQuery = encodeURIComponent(agentName.trim());
+      // Build query based on mode
+      let query = agentName.trim();
+      if (mode === 'token' && !query.startsWith('#')) {
+        query = `#${query}`;
+      }
+      
+      const encodedQuery = encodeURIComponent(query);
+      const chainParam = mode === 'token' ? `&chain=${chain}` : '';
       const [footprintRes, relationsRes, exposureRes, x402Res] = await Promise.all([
-        fetch(`/api/osint/footprint?agent=${encodedQuery}`),
-        fetch(`/api/osint/relations?agent=${encodedQuery}`),
-        fetch(`/api/osint/exposure?agent=${encodedQuery}`),
-        fetch(`/api/x402/probe?agent=${encodedQuery}`),
+        fetch(`/api/osint/footprint?agent=${encodedQuery}${chainParam}`),
+        fetch(`/api/osint/relations?agent=${encodedQuery}${chainParam}`),
+        fetch(`/api/osint/exposure?agent=${encodedQuery}${chainParam}`),
+        fetch(`/api/x402/probe?agent=${encodedQuery}${chainParam}`),
       ]);
 
       if (!footprintRes.ok) {
@@ -136,6 +154,40 @@ export default function OSINTDashboard() {
         </p>
       </div>
 
+      {/* Mode toggle */}
+      <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
+        {(
+          [
+            { key: 'agent', label: 'By Agent Name' },
+            { key: 'token', label: 'By ERC-8004 Token ID' },
+            { key: 'email', label: 'By NFTmail Address' },
+          ] as { key: LookupMode; label: string }[]
+        ).map(({ key, label }) => (
+          <button key={key}
+            className={mode === key ? 'btn-primary' : 'btn-secondary'}
+            style={{ fontSize: '0.8rem', padding: '0.4rem 0.875rem' }}
+            onClick={() => { setMode(key); setError(''); setAgentName(''); }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* Chain selector — shown for token / agent modes */}
+      {mode !== 'email' && (
+        <div style={{ display: 'flex', gap: '0.375rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
+          {CHAINS.map(c => (
+            <button key={c.key}
+              className={chain === c.key ? 'btn-primary' : 'btn-secondary'}
+              style={{ fontSize: '0.72rem', padding: '0.25rem 0.75rem', borderRadius: 99 }}
+              onClick={() => setChain(c.key)}
+            >
+              {c.label}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Search */}
       <div className="search-row">
         <input
@@ -143,7 +195,11 @@ export default function OSINTDashboard() {
           value={agentName}
           onChange={(e) => setAgentName(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && handleAnalyze()}
-          placeholder="ghostagent, #3199, or ghostagent_@nftmail.box..."
+          placeholder={
+            mode === 'email'  ? 'e.g. ghostagent_@nftmail.box'
+            : mode === 'agent' ? 'Agent name, e.g. ghostagent'
+            : `ERC-8004 token ID on ${CHAINS.find(c => c.key === chain)?.label || 'Gnosis'}, e.g. 3199`
+          }
           className="search-input"
           autoComplete="off" spellCheck={false}
         />
@@ -162,20 +218,53 @@ export default function OSINTDashboard() {
 
       {/* Quick examples */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1.5rem' }}>
-        <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
-          {[{ label: 'ghostagent', val: 'ghostagent' }, { label: 'eyemine', val: 'eyemine' }, { label: '#3199', val: '#3199' }, { label: 'ghostagent_@nftmail.box', val: 'ghostagent_@nftmail.box' }]
-            .map(ex => (
-              <button key={ex.val} className="btn-secondary"
-                style={{ fontSize: '0.7rem', padding: '0.25rem 0.625rem', borderRadius: 99 }}
-                onClick={() => { setAgentName(ex.val); }}>
-                {ex.label}
-              </button>
-            ))}
+        {mode === 'token' && (
+          <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+            {[{ label: '#3199 · ghostagent (Gnosis)', val: '3199' }, { label: '#32756 · ghostagent (Base)', val: '32756' }, { label: '#1766 · ghostagent (Base Sepolia)', val: '1766' }]
+              .map(ex => (
+                <button key={ex.val} className="btn-secondary"
+                  style={{ fontSize: '0.7rem', padding: '0.25rem 0.625rem', borderRadius: 99 }}
+                  onClick={() => { setAgentName(ex.val); setError(''); }}>
+                  {ex.label}
+                </button>
+              ))}
+          </div>
+        )}
+        {mode === 'email' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+              {[{ label: 'ghostagent_@nftmail.box', val: 'ghostagent_@nftmail.box' }, { label: 'eyemine_@nftmail.box', val: 'eyemine_@nftmail.box' }]
+                .map(ex => (
+                  <button key={ex.val} className="btn-secondary"
+                    style={{ fontSize: '0.7rem', padding: '0.25rem 0.625rem', borderRadius: 99 }}
+                    onClick={() => { setAgentName(ex.val); setError(''); }}>
+                    {ex.label}
+                  </button>
+                ))}
+            </div>
+            <p style={{ fontSize: '0.72rem', color: 'var(--muted)', margin: 0 }}>
+              NFTmail.box: Sovereign verifiable communication for AI agents. Every message logged, every agent accountable.
+            </p>
+          </div>
+        )}
+        {mode === 'agent' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+              {[{ label: 'ghostagent', val: 'ghostagent' }, { label: 'eyemine', val: 'eyemine' }, { label: 'victor', val: 'victor' }]
+                .map(ex => (
+                  <button key={ex.val} className="btn-secondary"
+                    style={{ fontSize: '0.7rem', padding: '0.25rem 0.625rem', borderRadius: 99 }}
+                    onClick={() => { setAgentName(ex.val); setError(''); }}>
+                    {ex.label}
+                  </button>
+                ))}
+            </div>
+            <p style={{ fontSize: '0.72rem', color: 'var(--muted)', margin: 0 }}>
+              Agent names are sovereign identities registered on ghostagent.ninja.
+            </p>
+          </div>
+        )}
         </div>
-        <p style={{ fontSize: '0.72rem', color: 'var(--muted)', margin: 0 }}>
-          Supports agent names, ERC-8004 token IDs (e.g., #3199), and NFTmail addresses (e.g., ghostagent_@nftmail.box).
-        </p>
-      </div>
 
       {/* Error */}
       {error && (
@@ -250,16 +339,28 @@ export default function OSINTDashboard() {
                         <span style={{ color: 'var(--muted)' }}>MCP Servers</span>
                         <span style={{ color: 'var(--text)' }}>{footprint.offChain.mcpServers.length}</span>
                       </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'var(--muted)' }}>x402 Ready</span>
+                        <span style={{ color: footprint.offChain.hasX402Capability ? 'var(--green)' : 'var(--amber)' }}>
+                          {footprint.offChain.hasX402Capability ? '✓ Yes' : '— No'}
+                        </span>
+                      </div>
                     </div>
                   </div>
                 </div>
 
                 {/* Exposure summary */}
                 <div style={{ marginTop: '1.5rem', border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: 'var(--bg-alt)', padding: '1rem' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
                     <span style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text)' }}>Risk Level</span>
                     <span className={`pill ${footprint.exposure.riskLevel === 'low' ? 'pill-green' : footprint.exposure.riskLevel === 'medium' ? 'pill-amber' : 'pill-red'}`}>
                       {footprint.exposure.riskLevel.toUpperCase()}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text)' }}>x402 Capability</span>
+                    <span className={`pill ${footprint.exposure.hasX402Capability ? 'pill-green' : 'pill-grey'}`}>
+                      {footprint.exposure.hasX402Capability ? 'BUILT-IN' : 'NONE'}
                     </span>
                   </div>
                 </div>

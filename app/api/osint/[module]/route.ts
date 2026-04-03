@@ -24,11 +24,13 @@ interface AgentFootprint {
     surgeScore: number;
     mcpServers: string[];
     genomeUrl: string | null;
+    hasX402Capability: boolean;
   };
   exposure: {
     hasPublicEndpoints: boolean;
     hasMCPServers: boolean;
     hasGenomeMetadata: boolean;
+    hasX402Capability: boolean;
     riskLevel: 'low' | 'medium' | 'high';
   };
 }
@@ -197,6 +199,16 @@ async function analyzeFootprint(agent: string): Promise<AgentFootprint> {
     }
   }
   
+  // Check for genome URL - ghostagents have built-in genome URLs
+  let genomeUrl = identity.genomeUrl || null;
+  if (!genomeUrl && identity.tld && identity.tld !== 'unknown') {
+    // Construct genome URL for ghostagent agents
+    genomeUrl = `https://gateway.lighthouse.storage/ipfs/${identity.tld}-genome`;
+  }
+  
+  // Check for x402 capability - ghostagents have built-in x402 readiness
+  const hasX402Capability = identity.tld && ['molt', 'nftmail', 'openclaw', 'picoclaw', 'vault', 'agent'].includes(identity.tld);
+  
   const hasPublicEndpoints = identity.mcpServers && identity.mcpServers.length > 0;
   let riskLevel: 'low' | 'medium' | 'high' = 'low';
   if (!identity.safe) riskLevel = 'high';
@@ -211,12 +223,14 @@ async function analyzeFootprint(agent: string): Promise<AgentFootprint> {
       totalXdaiBurned: identity.totalXdaiBurned || 0,
       surgeScore: identity.surgeReputationScore || 0,
       mcpServers: identity.mcpServers || [],
-      genomeUrl: identity.genomeUrl || null,
+      genomeUrl,
+      hasX402Capability,
     },
     exposure: {
       hasPublicEndpoints,
       hasMCPServers: hasPublicEndpoints,
-      hasGenomeMetadata: !!identity.genomeUrl,
+      hasGenomeMetadata: !!genomeUrl,
+      hasX402Capability,
       riskLevel,
     },
   };
@@ -641,7 +655,7 @@ async function monitorAgent(agent: string, alerts: boolean): Promise<MonitoringR
 
 // ============== AGENT RESOLVER ==============
 
-async function resolveAgentIdentifier(raw: string): Promise<string> {
+async function resolveAgentIdentifier(raw: string, chain?: string): Promise<string> {
   const v = raw.trim();
   if (!v) throw new Error('Empty agent identifier');
   
@@ -658,7 +672,10 @@ async function resolveAgentIdentifier(raw: string): Promise<string> {
     const data = await listRes.json();
     const agents = data.agents || [];
     
-    // Search through agents for matching ID on any chain
+    // If chain is specified, only search that chain
+    const chainsToCheck = chain ? [chain] : ['gnosis', 'base', 'baseSepolia'];
+    
+    // Search through agents for matching ID on specified chain(s)
     for (const agent of agents) {
       const identityRes = await fetch(`${WORKER_URL}`, {
         method: 'POST',
@@ -668,15 +685,14 @@ async function resolveAgentIdentifier(raw: string): Promise<string> {
       if (!identityRes.ok) continue;
       const identity = await identityRes.json();
       
-      // Check all chains for matching agentId
-      const chains = ['gnosis', 'base', 'baseSepolia'];
-      for (const chain of chains) {
-        if (identity.erc8004Ids?.[chain]?.agentId === parseInt(stripped)) {
+      // Check chains for matching agentId
+      for (const chainToCheck of chainsToCheck) {
+        if (identity.erc8004Ids?.[chainToCheck]?.agentId === parseInt(stripped)) {
           return agent;
         }
       }
     }
-    throw new Error(`No agent found with ERC-8004 ID #${stripped}`);
+    throw new Error(`No agent found with ERC-8004 ID #${stripped}${chain ? ` on ${chain}` : ''}`);
   }
   
   // Agent email: [name]_@nftmail.box
@@ -714,6 +730,7 @@ export async function GET(
   const { module } = await params;
   const { searchParams } = new URL(request.url);
   const rawAgent = searchParams.get('agent') || searchParams.get('target') || searchParams.get('handle') || searchParams.get('agentId');
+  const chain = searchParams.get('chain');
   
   if (!rawAgent) {
     return NextResponse.json({ error: 'Missing agent parameter (use agent, target, handle, or agentId)' }, { status: 400 });
@@ -721,7 +738,7 @@ export async function GET(
   
   try {
     // Resolve the agent identifier (handles #ID, email, or name)
-    const agent = await resolveAgentIdentifier(rawAgent);
+    const agent = await resolveAgentIdentifier(rawAgent, chain || undefined);
     let result;
     
     switch (module) {
