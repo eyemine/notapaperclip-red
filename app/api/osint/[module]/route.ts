@@ -643,9 +643,9 @@ async function monitorAgent(agent: string, alerts: boolean): Promise<MonitoringR
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { module: string } }
+  { params }: { params: Promise<{ module: string }> }
 ) {
-  const { module } = params;
+  const { module } = await params;
   const { searchParams } = new URL(request.url);
   const agent = searchParams.get('agent') || searchParams.get('target') || searchParams.get('handle') || searchParams.get('agentId');
   
