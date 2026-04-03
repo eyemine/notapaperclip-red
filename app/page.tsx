@@ -40,8 +40,9 @@ export default function HomePage() {
   const [result, setResult]       = useState<VerifyResult | null>(null);
   const [errorMsg, setErrorMsg]   = useState('');
   const [copied, setCopied]       = useState(false);
-  const [alignment, setAlignment] = useState<AlignmentResult | null>(null);
-  const [drift, setDrift]         = useState<DriftResult | null>(null);
+  const [alignment, setAlignment]   = useState<AlignmentResult | null>(null);
+  const [drift, setDrift]           = useState<DriftResult | null>(null);
+  const [companyRepo, setCompanyRepo] = useState<string | null>(null);
 
   async function search() {
     const id = query.trim().toLowerCase();
@@ -64,6 +65,17 @@ export default function HomePage() {
       }
       setResult(data);
       setStatus('found');
+      setCompanyRepo(null);
+      // Fetch Agent Companies manifest (non-blocking)
+      const repoToCheck = (data as any).config?.companyRepo ?? (id === 'ghostagent' ? 'eyemine/ghostagent-ninja' : null);
+      if (repoToCheck) {
+        fetch(`/api/company?repo=${encodeURIComponent(repoToCheck)}`)
+          .then(r => r.ok ? r.json() : null)
+          .then((c: { schema?: string; slug?: string } | null) => {
+            if (c?.schema?.startsWith('agentcompanies/')) setCompanyRepo(repoToCheck);
+          })
+          .catch(() => {});
+      }
       // Fetch alignment score + goal drift in parallel (non-blocking)
       const enc = encodeURIComponent(id);
       Promise.all([
@@ -127,6 +139,22 @@ export default function HomePage() {
           }
           Verify
         </button>
+      </div>
+
+      {/* Oracle Tools */}
+      <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.5rem', flexWrap: 'wrap', justifyContent: 'center' }}>
+        <a href="/erc8004" className="btn-secondary" style={{ fontSize: '0.75rem', padding: '0.4rem 0.75rem', textDecoration: 'none' }}>
+          ERC-8004 Resolver
+        </a>
+        <a href="/a2a" className="btn-secondary" style={{ fontSize: '0.75rem', padding: '0.4rem 0.75rem', textDecoration: 'none' }}>
+          A2A Validator
+        </a>
+        <a href="/mcp" className="btn-secondary" style={{ fontSize: '0.75rem', padding: '0.4rem 0.75rem', textDecoration: 'none' }}>
+          MCP Inspector
+        </a>
+        <a href="/osint" className="btn-secondary" style={{ fontSize: '0.75rem', padding: '0.4rem 0.75rem', textDecoration: 'none', background: 'var(--red-light)', borderColor: 'var(--red-mid)', color: 'var(--red)' }}>
+          🔍 OSINT Intelligence
+        </a>
       </div>
 
       {/* Quick examples */}
@@ -238,6 +266,26 @@ export default function HomePage() {
                 <span style={{ fontSize: '0.8rem', color: row.met ? 'var(--text)' : 'var(--muted)' }}>{row.label}</span>
               </div>
             ))}
+            <div className="data-row" style={{ alignItems: 'center', gap: '0.75rem', padding: '0.625rem 1.125rem', borderTop: '1px solid var(--border)' }}>
+              <span className="pill pill-green" style={{ width: '1.25rem', height: '1.25rem', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', borderRadius: '50%', padding: 0, flexShrink: 0 }}>✓</span>
+              <span style={{ fontSize: '0.8rem', color: 'var(--text)', flex: 1 }}>
+                ERC-8004 registry independently indexed by{' '}
+                <a href="https://gnosisscan.io/token/0x8004A169FB4a3325136EB29fA0ceB6D2e539a432" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--green)', fontWeight: 700, textDecoration: 'none' }}>Gnosisscan ↗</a>
+                {' '}— on-chain data verifiable by any third party
+              </span>
+            </div>
+            <div className="data-row" style={{ alignItems: 'center', gap: '0.75rem', padding: '0.625rem 1.125rem', borderTop: '1px solid var(--border)' }}>
+              <span className={`pill ${companyRepo ? 'pill-green' : 'pill-grey'}`} style={{ width: '1.25rem', height: '1.25rem', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', borderRadius: '50%', padding: 0, flexShrink: 0 }}>{companyRepo ? '✓' : '–'}</span>
+              <span style={{ fontSize: '0.8rem', color: companyRepo ? 'var(--text)' : 'var(--muted)', flex: 1 }}>
+                {companyRepo ? (
+                  <>
+                    Agent Companies package present —{' '}
+                    <a href={`https://github.com/${companyRepo}/blob/main/COMPANY.md`} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--green)', fontWeight: 700, textDecoration: 'none' }}>COMPANY.md ↗</a>
+                    {' '}(<a href="https://companies.sh" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--muted)', textDecoration: 'none' }}>companies.sh</a>)
+                  </>
+                ) : 'No Agent Companies package found (schema: agentcompanies/v1)'}
+              </span>
+            </div>
           </Card>
 
           {/* Members */}
@@ -254,7 +302,15 @@ export default function HomePage() {
                       {(m.agentName || m.address || '?')[0].toUpperCase()}
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: '0.875rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.agentName || m.address}</div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: '0.875rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.agentName || m.address}</span>
+                        {m.agentName && (
+                          <a href={`/erc8004?agent=${encodeURIComponent(m.agentName)}`}
+                            style={{ fontSize: '0.62rem', color: 'var(--green)', fontWeight: 700, textDecoration: 'none', flexShrink: 0 }}>
+                            ERC-8004 ↗
+                          </a>
+                        )}
+                      </div>
                       {m.address && m.agentName && (
                         <div className="mono" style={{ fontSize: '0.65rem', color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.address}</div>
                       )}

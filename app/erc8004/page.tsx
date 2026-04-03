@@ -27,6 +27,16 @@ interface AgentIdentity {
   links: { profile: string; agentCard: string; a2aCard: string; registry: string };
 }
 
+interface CompanyManifest {
+  schema:      string;
+  slug:        string;
+  name:        string;
+  description: string;
+  version:     string;
+  sourceUrl:   string;
+  fetchedAt:   number;
+}
+
 interface FeedResult {
   events:    ChainEvent[];
   total:     number;
@@ -56,6 +66,7 @@ function Erc8004FeedInner() {
   const [resolvedId, setResolved]         = useState<string | null>(null);
   const [resolvedName, setResolvedName]   = useState<string | null>(null);
   const [agentIdentity, setAgentIdentity] = useState<AgentIdentity | null>(null);
+  const [companyManifest, setCompany]     = useState<CompanyManifest | null>(null);
   const [resolveErr, setResolveErr]       = useState('');
   const [data, setData]               = useState<FeedResult | null>(null);
   const [loading, setLoading]         = useState(true);
@@ -111,6 +122,11 @@ function Erc8004FeedInner() {
         // Fetch full identity stack
         fetch(WORKER, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'getAgentIdentity', agentName: label }) })
           .then(r => r.json()).then((id: AgentIdentity) => setAgentIdentity(id)).catch(() => {});
+        // Fetch Agent Companies manifest
+        fetch(`/api/company?repo=eyemine/ghostagent-ninja&agent=${encodeURIComponent(label)}`)
+          .then(r => r.ok ? r.json() : null)
+          .then((c: CompanyManifest | null) => { if (c?.schema?.startsWith('agentcompanies/')) setCompany(c); })
+          .catch(() => {});
         return String(json.erc8004AgentId);
       }
       setResolveErr(`__HANDSHAKE__${label}`);
@@ -126,6 +142,7 @@ function Erc8004FeedInner() {
     setResolved(null);
     setResolvedName(null);
     setAgentIdentity(null);
+    setCompany(null);
     setResolveErr('');
     try {
       const agentId = await resolveFilter(agentFilter);
@@ -174,12 +191,18 @@ function Erc8004FeedInner() {
         <h1>ERC-8004 Feed</h1>
         <p>
           Live event log from ERC-8004 agent identity registries on{' '}
-          <a href="https://gnosisscan.io/address/0x8004A169FB4a3325136EB29fA0ceB6D2e539a432" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--red)', textDecoration: 'none', fontWeight: 600 }}>Gnosis ↗</a>
+          <a href="https://gnosisscan.io/token/0x8004A169FB4a3325136EB29fA0ceB6D2e539a432" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--red)', textDecoration: 'none', fontWeight: 600 }}>Gnosis ↗</a>
           {', '}
           <a href="https://basescan.org/address/0x8004A169FB4a3325136EB29fA0ceB6D2e539a432" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--red)', textDecoration: 'none', fontWeight: 600 }}>Base ↗</a>
           {' and '}
           <a href="https://sepolia.basescan.org/address/0x8004A818BFB912233c491871b3d84c89A494BD9e" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--red)', textDecoration: 'none', fontWeight: 600 }}>Base Sepolia ↗</a>.
           {' '}Auto-refreshes every 30s.
+        </p>
+        <p style={{ fontSize: '0.75rem', color: 'var(--muted)', marginTop: '0.5rem' }}>
+          <span style={{ background: 'var(--green-bg)', border: '1px solid rgba(26,122,74,0.25)', borderRadius: 4, padding: '0.15rem 0.5rem', marginRight: '0.5rem', fontSize: '0.68rem', fontWeight: 700, color: 'var(--green)', letterSpacing: '0.05em' }}>GNOSISSCAN INDEXED</span>
+          The ERC-8004 registry is independently searchable on{' '}
+          <a href="https://gnosisscan.io/token/0x8004A169FB4a3325136EB29fA0ceB6D2e539a432" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--red)', textDecoration: 'none', fontWeight: 600 }}>Gnosisscan ↗</a>
+          {' '}— a trusted third-party source independent of this oracle.
         </p>
       </div>
 
@@ -292,6 +315,19 @@ function Erc8004FeedInner() {
                 </div>
               </div>
 
+              {/* Agent Companies card */}
+              {companyManifest && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.5rem 0.75rem', background: 'var(--bg-alt)', border: '1px solid var(--border)', borderRadius: 6, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: '0.65rem', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em', flexShrink: 0 }}>companies.sh</span>
+                  <span style={{ fontSize: '0.72rem', fontWeight: 600 }}>{companyManifest.name}</span>
+                  <span style={{ fontSize: '0.65rem', color: 'var(--muted)', fontFamily: 'monospace' }}>schema: {companyManifest.schema}</span>
+                  <a href={companyManifest.sourceUrl} target="_blank" rel="noopener noreferrer"
+                    style={{ fontSize: '0.68rem', color: 'var(--green)', fontWeight: 700, textDecoration: 'none', marginLeft: 'auto' }}>AGENTS.md ↗</a>
+                  <a href="https://companies.sh" target="_blank" rel="noopener noreferrer"
+                    style={{ fontSize: '0.68rem', color: 'var(--muted)', textDecoration: 'none' }}>companies.sh ↗</a>
+                </div>
+              )}
+
               {/* Links row */}
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem 1rem', paddingTop: '0.35rem', borderTop: '1px solid var(--border)' }}>
                 <a href={`https://ghostagent.ninja/agent/${resolvedName}`} target="_blank" rel="noopener noreferrer"
@@ -307,6 +343,15 @@ function Erc8004FeedInner() {
                   style={{ fontSize: '0.72rem', color: 'var(--red)', fontWeight: 600, textDecoration: 'none' }}>A2A Card ↗</a>
                 <a href="https://ghostagent.ninja/agents" target="_blank" rel="noopener noreferrer"
                   style={{ fontSize: '0.72rem', color: 'var(--muted)', textDecoration: 'none' }}>Agent Registry ↗</a>
+                {agentIdentity?.erc8004?.gnosis && (
+                  <a
+                    href={`https://gnosisscan.io/token/0x8004A169FB4a3325136EB29fA0ceB6D2e539a432?a=${agentIdentity.erc8004.gnosis.agentId}`}
+                    target="_blank" rel="noopener noreferrer"
+                    style={{ fontSize: '0.72rem', color: 'var(--green)', fontWeight: 700, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '0.2rem' }}
+                    title="Independently verify this agent on Gnosisscan">
+                    Verify on Gnosisscan ↗
+                  </a>
+                )}
               </div>
             </div>
           )}
