@@ -8,6 +8,16 @@ const nextConfig: NextConfig = {
     outputFileTracingRoot: path.join(__dirname),
   } : {}),
   allowedDevOrigins: ['127.0.0.1', 'localhost'],
+  // Redirect /erc8004 to / since we moved the ERC-8004 feed to landing page
+  async redirects() {
+    return [
+      {
+        source: '/erc8004',
+        destination: '/',
+        permanent: true,
+      },
+    ];
+  },
   // Disable features that trigger localStorage simulation in dev
   ...(process.env.NODE_ENV === 'production' ? {} : {
     serverExternalPackages: [],

@@ -70,11 +70,12 @@ export default function OSINTDashboard() {
     setExposure(null);
 
     try {
-      // Fetch all three modules in parallel
+      // Fetch all three modules in parallel - pass the raw query to let API resolve it
+      const encodedQuery = encodeURIComponent(agentName.trim());
       const [footprintRes, relationsRes, exposureRes] = await Promise.all([
-        fetch(`/api/osint/footprint?agent=${encodeURIComponent(agentName)}`),
-        fetch(`/api/osint/relations?agent=${encodeURIComponent(agentName)}`),
-        fetch(`/api/osint/exposure?agent=${encodeURIComponent(agentName)}`),
+        fetch(`/api/osint/footprint?agent=${encodedQuery}`),
+        fetch(`/api/osint/relations?agent=${encodedQuery}`),
+        fetch(`/api/osint/exposure?agent=${encodedQuery}`),
       ]);
 
       if (!footprintRes.ok) {
@@ -99,35 +100,51 @@ export default function OSINTDashboard() {
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)' }}>
       <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '2rem 1rem' }}>
-        {/* Header */}
-        <header style={{ marginBottom: '2rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
-          <div>
-            <h1 style={{ fontSize: '2rem', fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.02em' }}>OSINT Intelligence</h1>
-            <p style={{ marginTop: '0.25rem', fontSize: '0.875rem', color: 'var(--muted)' }}>
-              Agent footprint analysis, network mapping, and exposure assessment
-            </p>
+        {/* Header with Navigation */}
+        <header style={{ marginBottom: '2rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem', marginBottom: '1rem' }}>
+            <div>
+              <h1 style={{ fontSize: '2rem', fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.02em' }}>OSINT Intelligence</h1>
+              <p style={{ marginTop: '0.25rem', fontSize: '0.875rem', color: 'var(--muted)' }}>
+                Agent footprint analysis, network mapping, and exposure assessment
+              </p>
+            </div>
           </div>
-          <Link
-            href="/"
-            className="btn-secondary"
-            style={{ textDecoration: 'none' }}
-          >
-            ← Oracle Home
-          </Link>
+          {/* Navigation */}
+          <nav style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', padding: '0.75rem 0', borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)' }}>
+            <Link href="/" className="btn-secondary" style={{ fontSize: '0.75rem', padding: '0.4rem 0.75rem', textDecoration: 'none' }}>
+              ERC-8004 Feed
+            </Link>
+            <Link href="/swarm" className="btn-secondary" style={{ fontSize: '0.75rem', padding: '0.4rem 0.75rem', textDecoration: 'none' }}>
+              Swarm Verifier
+            </Link>
+            <Link href="/a2a" className="btn-secondary" style={{ fontSize: '0.75rem', padding: '0.4rem 0.75rem', textDecoration: 'none' }}>
+              A2A Validator
+            </Link>
+            <Link href="/mcp" className="btn-secondary" style={{ fontSize: '0.75rem', padding: '0.4rem 0.75rem', textDecoration: 'none' }}>
+              MCP Inspector
+            </Link>
+            <span className="btn-secondary" style={{ fontSize: '0.75rem', padding: '0.4rem 0.75rem', background: 'var(--red-light)', borderColor: 'var(--red-mid)', color: 'var(--red)', cursor: 'default' }}>
+              🔍 OSINT
+            </span>
+          </nav>
         </header>
 
         {/* Search */}
         <div style={{ marginBottom: '2rem', border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: 'var(--card)', padding: '1.5rem' }}>
           <label style={{ marginBottom: '0.5rem', display: 'block', fontSize: '0.875rem', fontWeight: 600, color: 'var(--text)' }}>
-            Agent Name
+            Search Agent
           </label>
+          <p style={{ marginBottom: '0.75rem', fontSize: '0.75rem', color: 'var(--muted)' }}>
+            Enter agent name, ERC-8004 ID (e.g., #3199), or email (e.g., ghostagent_@nftmail.box)
+          </p>
           <div style={{ display: 'flex', gap: '0.75rem' }}>
             <input
               type="text"
               value={agentName}
               onChange={(e) => setAgentName(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleAnalyze()}
-              placeholder="ghostagent, eyemine, victor..."
+              placeholder="ghostagent, eyemine, victor, #3199, ghostagent_@nftmail.box..."
               className="search-input"
               style={{ flex: 1 }}
             />

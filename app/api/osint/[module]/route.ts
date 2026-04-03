@@ -639,6 +639,72 @@ async function monitorAgent(agent: string, alerts: boolean): Promise<MonitoringR
   };
 }
 
+// ============== AGENT RESOLVER ==============
+
+async function resolveAgentIdentifier(raw: string): Promise<string> {
+  const v = raw.trim();
+  if (!v) throw new Error('Empty agent identifier');
+  
+  // Strip leading # and treat as numeric token ID / ERC-8004 ID
+  const stripped = v.replace(/^#/, '');
+  if (/^\d+$/.test(stripped)) {
+    // Look up agent by ERC-8004 ID
+    const listRes = await fetch(`${WORKER_URL}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'listAgents' }),
+    });
+    if (!listRes.ok) throw new Error('Failed to list agents');
+    const data = await listRes.json();
+    const agents = data.agents || [];
+    
+    // Search through agents for matching ID on any chain
+    for (const agent of agents) {
+      const identityRes = await fetch(`${WORKER_URL}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'getAgentIdentity', agentName: agent }),
+      });
+      if (!identityRes.ok) continue;
+      const identity = await identityRes.json();
+      
+      // Check all chains for matching agentId
+      const chains = ['gnosis', 'base', 'baseSepolia'];
+      for (const chain of chains) {
+        if (identity.erc8004Ids?.[chain]?.agentId === parseInt(stripped)) {
+          return agent;
+        }
+      }
+    }
+    throw new Error(`No agent found with ERC-8004 ID #${stripped}`);
+  }
+  
+  // Agent email: [name]_@nftmail.box
+  if (v.includes('_@nftmail.box')) {
+    const res = await fetch(`${WORKER_URL}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'getAgentIdentity', agentName: v.replace('_@nftmail.box', '') }),
+    });
+    if (!res.ok) throw new Error('Agent email not found');
+    const identity = await res.json();
+    if (identity.email === v || identity.email?.toLowerCase() === v.toLowerCase()) {
+      return v.replace('_@nftmail.box', '');
+    }
+    // Fallback: just return the name part
+    return v.replace('_@nftmail.box', '');
+  }
+  
+  // Regular agent name - verify it exists
+  const identityRes = await fetch(`${WORKER_URL}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'getAgentIdentity', agentName: v }),
+  });
+  if (!identityRes.ok) throw new Error(`Agent "${v}" not found`);
+  return v;
+}
+
 // ============== ROUTE HANDLER ==============
 
 export async function GET(
@@ -647,13 +713,15 @@ export async function GET(
 ) {
   const { module } = await params;
   const { searchParams } = new URL(request.url);
-  const agent = searchParams.get('agent') || searchParams.get('target') || searchParams.get('handle') || searchParams.get('agentId');
+  const rawAgent = searchParams.get('agent') || searchParams.get('target') || searchParams.get('handle') || searchParams.get('agentId');
   
-  if (!agent) {
+  if (!rawAgent) {
     return NextResponse.json({ error: 'Missing agent parameter (use agent, target, handle, or agentId)' }, { status: 400 });
   }
   
   try {
+    // Resolve the agent identifier (handles #ID, email, or name)
+    const agent = await resolveAgentIdentifier(rawAgent);
     let result;
     
     switch (module) {
