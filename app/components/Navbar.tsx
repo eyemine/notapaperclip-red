@@ -5,11 +5,12 @@ import { usePathname } from 'next/navigation';
 import { useState } from 'react';
 
 const NAV_ITEMS = [
-  { href: '/',              label: 'Swarm Verifier'  },
-  { href: '/erc8004',       label: 'ERC-8004 Feed'   },
+  { href: '/',              label: 'ERC-8004 Feed'   },
+  { href: '/swarm',        label: 'Swarm Verifier'  },
   { href: '/handshakes',    label: 'Handshakes'      },
   { href: '/a2a',           label: 'A2A Validator'   },
   { href: '/mcp',           label: 'MCP Inspector'   },
+  { href: '/osint',         label: 'OSINT'           },
   { href: '/verify',        label: 'Proof Lookup'    },
 ];
 

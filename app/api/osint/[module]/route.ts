@@ -154,7 +154,7 @@ async function analyzeFootprint(agent: string): Promise<AgentFootprint> {
   const identity = await identityRes.json();
   
   let onChainData = {
-    safeAddress: identity.safeAddress || null,
+    safeAddress: identity.safe || null,
     tbaAddress: identity.tbaAddress || null,
     totalTransactions: 0,
     firstSeen: null as number | null,
@@ -162,7 +162,7 @@ async function analyzeFootprint(agent: string): Promise<AgentFootprint> {
     balances: [] as { token: string; amount: string }[],
   };
   
-  if (identity.safeAddress) {
+  if (identity.safe) {
     try {
       const [balanceRes, txRes] = await Promise.all([
         fetch(GNOSIS_RPC, {
@@ -172,10 +172,10 @@ async function analyzeFootprint(agent: string): Promise<AgentFootprint> {
             jsonrpc: '2.0',
             id: 1,
             method: 'eth_getBalance',
-            params: [identity.safeAddress, 'latest'],
+            params: [identity.safe, 'latest'],
           }),
         }),
-        fetch(`${GNOSISSCAN_API}?module=account&action=txlist&address=${identity.safeAddress}&startblock=0&endblock=99999999&sort=asc&apikey=YourApiKeyToken`),
+        fetch(`${GNOSISSCAN_API}?module=account&action=txlist&address=${identity.safe}&startblock=0&endblock=99999999&sort=asc&apikey=YourApiKeyToken`),
       ]);
       
       const balanceData = await balanceRes.json();
@@ -199,7 +199,7 @@ async function analyzeFootprint(agent: string): Promise<AgentFootprint> {
   
   const hasPublicEndpoints = identity.mcpServers && identity.mcpServers.length > 0;
   let riskLevel: 'low' | 'medium' | 'high' = 'low';
-  if (!identity.safeAddress) riskLevel = 'high';
+  if (!identity.safe) riskLevel = 'high';
   else if (onChainData.balances.length === 0 || parseFloat(onChainData.balances[0]?.amount || '0') < 1) riskLevel = 'medium';
   
   return {
@@ -245,7 +245,7 @@ async function mapRelations(agent: string): Promise<AgentRelations> {
   let sharedSafes: string[] = [];
   if (identityRes.ok) {
     const identity = await identityRes.json();
-    if (identity.safeAddress) sharedSafes.push(identity.safeAddress);
+    if (identity.safe) sharedSafes.push(identity.safe);
   }
   
   const networkSize = handshakes.length;
@@ -288,10 +288,10 @@ async function buildGraph(agent: string, depth: number = 2): Promise<GraphData> 
     if (identityRes?.ok) {
       const identity = await identityRes.json();
       
-      if (identity.safeAddress && !visited.has(identity.safeAddress)) {
-        visited.add(identity.safeAddress);
-        nodes.push({ id: identity.safeAddress, label: 'Safe', type: 'safe' });
-        edges.push({ source: currentAgent, target: identity.safeAddress, type: 'owns', weight: 1 });
+      if (identity.safe && !visited.has(identity.safe)) {
+        visited.add(identity.safe);
+        nodes.push({ id: identity.safe, label: 'Safe', type: 'safe' });
+        edges.push({ source: currentAgent, target: identity.safe, type: 'owns', weight: 1 });
       }
       
       (identity.mcpServers || []).forEach((mcp: string) => {
@@ -352,7 +352,7 @@ async function correlateIdentity(handle: string, platforms: string[]): Promise<C
   if (identity.ownerWallet) {
     correlated.push({
       platform: 'gnosis-safe',
-      handle: identity.safeAddress || 'unknown',
+      handle: identity.safe || 'unknown',
       confidence: 100,
       verified: true,
     });
@@ -394,7 +394,7 @@ async function runRecon(target: string, modules: string[]): Promise<ReconReport>
     if (identityRes.ok) {
       const identity = await identityRes.json();
       results.crypto = {
-        safeAddress: identity.safeAddress,
+        safeAddress: identity.safe,
         tbaAddress: identity.tbaAddress,
         nfts: [],
       };
@@ -428,7 +428,7 @@ async function checkExposure(agent: string): Promise<ExposureReport> {
   const exposures: Array<{ type: string; severity: string; description: string }> = [];
   let score = 100;
   
-  if (!identity.safeAddress) {
+  if (!identity.safe) {
     exposures.push({ type: 'no-safe', severity: 'high', description: 'Agent has no Gnosis Safe address registered' });
     score -= 30;
   } else {
@@ -440,7 +440,7 @@ async function checkExposure(agent: string): Promise<ExposureReport> {
           jsonrpc: '2.0',
           id: 1,
           method: 'eth_getBalance',
-          params: [identity.safeAddress, 'latest'],
+          params: [identity.safe, 'latest'],
         }),
       });
       
@@ -523,10 +523,10 @@ async function analyzeExhaust(agent: string): Promise<DigitalExhaust> {
   const chains = [];
   
   // Gnosis transactions
-  if (identity.safeAddress) {
+  if (identity.safe) {
     try {
       const gnosisTx = await fetch(
-        `${GNOSISSCAN_API}?module=account&action=txlist&address=${identity.safeAddress}&startblock=0&endblock=99999999&sort=asc&apikey=YourApiKeyToken`
+        `${GNOSISSCAN_API}?module=account&action=txlist&address=${identity.safe}&startblock=0&endblock=99999999&sort=asc&apikey=YourApiKeyToken`
       );
       const gnosisData = await gnosisTx.json();
       if (gnosisData.status === '1' && Array.isArray(gnosisData.result)) {

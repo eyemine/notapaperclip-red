@@ -1,7 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import Link from 'next/link';
 
 interface FootprintData {
   agent: string;
@@ -127,73 +126,66 @@ export default function OSINTDashboard() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--bg)' }}>
-      <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '2rem 1rem' }}>
-        {/* Header with Navigation */}
-        <header style={{ marginBottom: '2rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem', marginBottom: '1rem' }}>
-            <div>
-              <h1 style={{ fontSize: '2rem', fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.02em' }}>OSINT Intelligence</h1>
-              <p style={{ marginTop: '0.25rem', fontSize: '0.875rem', color: 'var(--muted)' }}>
-                Agent footprint analysis, network mapping, and exposure assessment
-              </p>
-            </div>
-          </div>
-          {/* Navigation */}
-          <nav style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', padding: '0.75rem 0', borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)' }}>
-            <Link href="/" className="btn-secondary" style={{ fontSize: '0.75rem', padding: '0.4rem 0.75rem', textDecoration: 'none' }}>
-              ERC-8004 Feed
-            </Link>
-            <Link href="/swarm" className="btn-secondary" style={{ fontSize: '0.75rem', padding: '0.4rem 0.75rem', textDecoration: 'none' }}>
-              Swarm Verifier
-            </Link>
-            <Link href="/a2a" className="btn-secondary" style={{ fontSize: '0.75rem', padding: '0.4rem 0.75rem', textDecoration: 'none' }}>
-              A2A Validator
-            </Link>
-            <Link href="/mcp" className="btn-secondary" style={{ fontSize: '0.75rem', padding: '0.4rem 0.75rem', textDecoration: 'none' }}>
-              MCP Inspector
-            </Link>
-            <span className="btn-secondary" style={{ fontSize: '0.75rem', padding: '0.4rem 0.75rem', background: 'var(--red-light)', borderColor: 'var(--red-mid)', color: 'var(--red)', cursor: 'default' }}>
-              🔍 OSINT
-            </span>
-          </nav>
-        </header>
+    <div className="page-wrap">
 
-        {/* Search */}
-        <div style={{ marginBottom: '2rem', border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: 'var(--card)', padding: '1.5rem' }}>
-          <label style={{ marginBottom: '0.5rem', display: 'block', fontSize: '0.875rem', fontWeight: 600, color: 'var(--text)' }}>
-            Search Agent
-          </label>
-          <p style={{ marginBottom: '0.75rem', fontSize: '0.75rem', color: 'var(--muted)' }}>
-            Enter agent name, ERC-8004 ID (e.g., #3199), or email (e.g., ghostagent_@nftmail.box)
-          </p>
-          <div style={{ display: 'flex', gap: '0.75rem' }}>
-            <input
-              type="text"
-              value={agentName}
-              onChange={(e) => setAgentName(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleAnalyze()}
-              placeholder="ghostagent, eyemine, victor, #3199, ghostagent_@nftmail.box..."
-              className="search-input"
-              style={{ flex: 1 }}
-            />
-            <button
-              onClick={handleAnalyze}
-              disabled={loading || !agentName.trim()}
-              className="btn-primary"
-            >
-              {loading ? 'Analyzing...' : 'Analyze'}
-            </button>
-          </div>
-          {error && (
-            <div style={{ marginTop: '0.75rem', border: '1px solid var(--red-mid)', borderRadius: 'var(--radius)', background: 'var(--red-light)', padding: '0.75rem 1rem', fontSize: '0.875rem', color: 'var(--red)' }}>
-              {error}
-            </div>
-          )}
+      <div className="page-hero" style={{ textAlign: 'center' }}>
+        <h1>OSINT Intelligence</h1>
+        <p>
+          Agent footprint analysis, network mapping, and exposure assessment.
+          Search by agent name, ERC-8004 token ID, or NFTmail address.
+        </p>
+      </div>
+
+      {/* Search */}
+      <div className="search-row">
+        <input
+          type="text"
+          value={agentName}
+          onChange={(e) => setAgentName(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && handleAnalyze()}
+          placeholder="ghostagent, #3199, or ghostagent_@nftmail.box..."
+          className="search-input"
+          autoComplete="off" spellCheck={false}
+        />
+        <button
+          onClick={handleAnalyze}
+          disabled={loading || !agentName.trim()}
+          className="btn-primary"
+        >
+          {loading
+            ? <span className="spinner" style={{ width: 16, height: 16 }} />
+            : <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+          }
+          Analyze
+        </button>
+      </div>
+
+      {/* Quick examples */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1.5rem' }}>
+        <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+          {[{ label: 'ghostagent', val: 'ghostagent' }, { label: 'eyemine', val: 'eyemine' }, { label: '#3199', val: '#3199' }, { label: 'ghostagent_@nftmail.box', val: 'ghostagent_@nftmail.box' }]
+            .map(ex => (
+              <button key={ex.val} className="btn-secondary"
+                style={{ fontSize: '0.7rem', padding: '0.25rem 0.625rem', borderRadius: 99 }}
+                onClick={() => { setAgentName(ex.val); }}>
+                {ex.label}
+              </button>
+            ))}
         </div>
+        <p style={{ fontSize: '0.72rem', color: 'var(--muted)', margin: 0 }}>
+          Supports agent names, ERC-8004 token IDs (e.g., #3199), and NFTmail addresses (e.g., ghostagent_@nftmail.box).
+        </p>
+      </div>
+
+      {/* Error */}
+      {error && (
+        <div className="alert alert-warn" style={{ marginBottom: '1.5rem' }}>
+          {error}
+        </div>
+      )}
 
         {/* Results */}
-        {(footprint || relations || exposure) && (
+        {(footprint || relations || exposure || x402) && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
             {/* Footprint */}
             {footprint && (
@@ -423,17 +415,17 @@ export default function OSINTDashboard() {
           </div>
         )}
 
-        {/* Empty state */}
-        {!loading && !footprint && !relations && !exposure && !x402 && !error && (
-          <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: 'var(--card)', padding: '3rem', textAlign: 'center' }}>
-            <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>🔍</div>
-            <h3 style={{ fontSize: '1.125rem', fontWeight: 600, color: 'var(--text)' }}>No Analysis Yet</h3>
-            <p style={{ marginTop: '0.5rem', fontSize: '0.875rem', color: 'var(--muted)' }}>
-              Enter an agent name above to start OSINT analysis
-            </p>
-          </div>
-        )}
-      </div>
+      {/* Empty state */}
+      {!loading && !footprint && !relations && !exposure && !x402 && !error && (
+        <div className="alert alert-info" style={{ marginTop: '1rem' }}>
+          Enter an agent identifier to start OSINT analysis. The oracle will retrieve on-chain identity, off-chain metadata, network relations, and exposure assessment.
+        </div>
+      )}
+
+      <footer className="site-footer">
+        <div>notapaperclip.red · Independent agent trust oracle</div>
+        <div>OSINT analysis powered by ERC-8004 registry data</div>
+      </footer>
     </div>
   );
 }

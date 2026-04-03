@@ -109,24 +109,6 @@ export default function HomePage() {
 
   return (
     <div className="page-wrap">
-      {/* Navigation */}
-      <nav style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', padding: '0.75rem 0', borderBottom: '1px solid var(--border)', marginBottom: '1rem' }}>
-        <Link href="/" className="btn-secondary" style={{ fontSize: '0.75rem', padding: '0.4rem 0.75rem', textDecoration: 'none' }}>
-          ERC-8004 Feed
-        </Link>
-        <span className="btn-secondary" style={{ fontSize: '0.75rem', padding: '0.4rem 0.75rem', background: 'var(--red-light)', borderColor: 'var(--red-mid)', color: 'var(--red)', cursor: 'default' }}>
-          Swarm Verifier
-        </span>
-        <Link href="/a2a" className="btn-secondary" style={{ fontSize: '0.75rem', padding: '0.4rem 0.75rem', textDecoration: 'none' }}>
-          A2A Validator
-        </Link>
-        <Link href="/mcp" className="btn-secondary" style={{ fontSize: '0.75rem', padding: '0.4rem 0.75rem', textDecoration: 'none' }}>
-          MCP Inspector
-        </Link>
-        <Link href="/osint" className="btn-secondary" style={{ fontSize: '0.75rem', padding: '0.4rem 0.75rem', textDecoration: 'none' }}>
-          🔍 OSINT
-        </Link>
-      </nav>
 
       {/* Hero */}
       <div className="page-hero" style={{ textAlign: 'center' }}>
