@@ -96,69 +96,51 @@ export default function OSINTDashboard() {
     }
   }
 
-  function getRiskColor(level: string) {
-    switch (level) {
-      case 'low': return 'text-emerald-400';
-      case 'medium': return 'text-amber-400';
-      case 'high': return 'text-orange-400';
-      case 'critical': return 'text-red-400';
-      default: return 'text-gray-400';
-    }
-  }
-
-  function getSeverityColor(severity: string) {
-    switch (severity) {
-      case 'low': return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
-      case 'medium': return 'bg-amber-500/10 text-amber-400 border-amber-500/20';
-      case 'high': return 'bg-orange-500/10 text-orange-400 border-orange-500/20';
-      case 'critical': return 'bg-red-500/10 text-red-400 border-red-500/20';
-      default: return 'bg-gray-500/10 text-gray-400 border-gray-500/20';
-    }
-  }
-
   return (
-    <div className="min-h-screen bg-[#0a0a0a]">
-      <div className="mx-auto max-w-6xl px-4 py-8">
+    <div style={{ minHeight: '100vh', background: 'var(--bg)' }}>
+      <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '2rem 1rem' }}>
         {/* Header */}
-        <header className="mb-8 flex items-center justify-between">
+        <header style={{ marginBottom: '2rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
           <div>
-            <h1 className="text-3xl font-bold text-white">OSINT Intelligence</h1>
-            <p className="mt-1 text-sm text-zinc-400">
+            <h1 style={{ fontSize: '2rem', fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.02em' }}>OSINT Intelligence</h1>
+            <p style={{ marginTop: '0.25rem', fontSize: '0.875rem', color: 'var(--muted)' }}>
               Agent footprint analysis, network mapping, and exposure assessment
             </p>
           </div>
           <Link
             href="/"
-            className="rounded-lg border border-zinc-700 bg-black/20 px-4 py-2 text-sm text-white transition hover:bg-black/40"
+            className="btn-secondary"
+            style={{ textDecoration: 'none' }}
           >
             ← Oracle Home
           </Link>
         </header>
 
         {/* Search */}
-        <div className="mb-8 rounded-xl border border-zinc-800 bg-zinc-900/50 p-6">
-          <label className="mb-2 block text-sm font-semibold text-white">
+        <div style={{ marginBottom: '2rem', border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: 'var(--card)', padding: '1.5rem' }}>
+          <label style={{ marginBottom: '0.5rem', display: 'block', fontSize: '0.875rem', fontWeight: 600, color: 'var(--text)' }}>
             Agent Name
           </label>
-          <div className="flex gap-3">
+          <div style={{ display: 'flex', gap: '0.75rem' }}>
             <input
               type="text"
               value={agentName}
               onChange={(e) => setAgentName(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleAnalyze()}
               placeholder="ghostagent, eyemine, victor..."
-              className="flex-1 rounded-lg border border-zinc-700 bg-black/40 px-4 py-2.5 text-sm text-white placeholder:text-zinc-500 focus:border-red-500/50 focus:outline-none"
+              className="search-input"
+              style={{ flex: 1 }}
             />
             <button
               onClick={handleAnalyze}
               disabled={loading || !agentName.trim()}
-              className="rounded-lg bg-red-600 px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-red-500 disabled:opacity-50"
+              className="btn-primary"
             >
               {loading ? 'Analyzing...' : 'Analyze'}
             </button>
           </div>
           {error && (
-            <div className="mt-3 rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-2 text-sm text-red-400">
+            <div style={{ marginTop: '0.75rem', border: '1px solid var(--red-mid)', borderRadius: 'var(--radius)', background: 'var(--red-light)', padding: '0.75rem 1rem', fontSize: '0.875rem', color: 'var(--red)' }}>
               {error}
             </div>
           )}
@@ -166,40 +148,40 @@ export default function OSINTDashboard() {
 
         {/* Results */}
         {(footprint || relations || exposure) && (
-          <div className="space-y-6">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
             {/* Footprint */}
             {footprint && (
-              <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-6">
-                <h2 className="mb-4 text-xl font-bold text-white">Digital Footprint</h2>
+              <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: 'var(--card)', padding: '1.5rem' }}>
+                <h2 style={{ marginBottom: '1rem', fontSize: '1.25rem', fontWeight: 700, color: 'var(--text)' }}>Digital Footprint</h2>
                 
-                <div className="grid gap-6 md:grid-cols-2">
+                <div style={{ display: 'grid', gap: '1.5rem', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}>
                   {/* On-chain */}
                   <div>
-                    <h3 className="mb-3 text-sm font-semibold text-red-400">On-Chain Data</h3>
-                    <div className="space-y-2 text-sm">
-                      <div className="flex justify-between">
-                        <span className="text-zinc-400">Safe Address</span>
-                        <span className="font-mono text-white">
+                    <h3 style={{ marginBottom: '0.75rem', fontSize: '0.875rem', fontWeight: 600, color: 'var(--red)' }}>On-Chain Data</h3>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', fontSize: '0.875rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'var(--muted)' }}>Safe Address</span>
+                        <span className="mono" style={{ color: 'var(--text)' }}>
                           {footprint.onChain.safeAddress ? 
                             `${footprint.onChain.safeAddress.slice(0, 6)}...${footprint.onChain.safeAddress.slice(-4)}` : 
                             '—'}
                         </span>
                       </div>
-                      <div className="flex justify-between">
-                        <span className="text-zinc-400">TBA Address</span>
-                        <span className="font-mono text-white">
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'var(--muted)' }}>TBA Address</span>
+                        <span className="mono" style={{ color: 'var(--text)' }}>
                           {footprint.onChain.tbaAddress ? 
                             `${footprint.onChain.tbaAddress.slice(0, 6)}...${footprint.onChain.tbaAddress.slice(-4)}` : 
                             '—'}
                         </span>
                       </div>
-                      <div className="flex justify-between">
-                        <span className="text-zinc-400">Total Transactions</span>
-                        <span className="text-white">{footprint.onChain.totalTransactions}</span>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'var(--muted)' }}>Total Transactions</span>
+                        <span style={{ color: 'var(--text)' }}>{footprint.onChain.totalTransactions}</span>
                       </div>
-                      <div className="flex justify-between">
-                        <span className="text-zinc-400">Balance</span>
-                        <span className="text-white">
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'var(--muted)' }}>Balance</span>
+                        <span style={{ color: 'var(--text)' }}>
                           {footprint.onChain.balances[0]?.amount || '0'} {footprint.onChain.balances[0]?.token || 'xDAI'}
                         </span>
                       </div>
@@ -208,38 +190,38 @@ export default function OSINTDashboard() {
 
                   {/* Off-chain */}
                   <div>
-                    <h3 className="mb-3 text-sm font-semibold text-red-400">Off-Chain Data</h3>
-                    <div className="space-y-2 text-sm">
-                      <div className="flex justify-between">
-                        <span className="text-zinc-400">TLD</span>
-                        <span className="text-white">{footprint.offChain.tld}</span>
+                    <h3 style={{ marginBottom: '0.75rem', fontSize: '0.875rem', fontWeight: 600, color: 'var(--red)' }}>Off-Chain Data</h3>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', fontSize: '0.875rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'var(--muted)' }}>TLD</span>
+                        <span style={{ color: 'var(--text)' }}>{footprint.offChain.tld}</span>
                       </div>
-                      <div className="flex justify-between">
-                        <span className="text-zinc-400">Tier</span>
-                        <span className="text-white capitalize">{footprint.offChain.tier}</span>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'var(--muted)' }}>Tier</span>
+                        <span style={{ color: 'var(--text)', textTransform: 'capitalize' }}>{footprint.offChain.tier}</span>
                       </div>
-                      <div className="flex justify-between">
-                        <span className="text-zinc-400">xDAI Burned</span>
-                        <span className="text-white">{footprint.offChain.totalXdaiBurned.toFixed(1)}</span>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'var(--muted)' }}>xDAI Burned</span>
+                        <span style={{ color: 'var(--text)' }}>{footprint.offChain.totalXdaiBurned.toFixed(1)}</span>
                       </div>
-                      <div className="flex justify-between">
-                        <span className="text-zinc-400">Surge Score</span>
-                        <span className="text-white">{footprint.offChain.surgeScore}</span>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'var(--muted)' }}>Surge Score</span>
+                        <span style={{ color: 'var(--text)' }}>{footprint.offChain.surgeScore}</span>
                       </div>
-                      <div className="flex justify-between">
-                        <span className="text-zinc-400">MCP Servers</span>
-                        <span className="text-white">{footprint.offChain.mcpServers.length}</span>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'var(--muted)' }}>MCP Servers</span>
+                        <span style={{ color: 'var(--text)' }}>{footprint.offChain.mcpServers.length}</span>
                       </div>
                     </div>
                   </div>
                 </div>
 
                 {/* Exposure summary */}
-                <div className="mt-6 rounded-lg border border-zinc-700 bg-black/20 p-4">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-semibold text-white">Risk Level</span>
-                    <span className={`text-sm font-bold uppercase ${getRiskColor(footprint.exposure.riskLevel)}`}>
-                      {footprint.exposure.riskLevel}
+                <div style={{ marginTop: '1.5rem', border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: 'var(--bg-alt)', padding: '1rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text)' }}>Risk Level</span>
+                    <span className={`pill ${footprint.exposure.riskLevel === 'low' ? 'pill-green' : footprint.exposure.riskLevel === 'medium' ? 'pill-amber' : 'pill-red'}`}>
+                      {footprint.exposure.riskLevel.toUpperCase()}
                     </span>
                   </div>
                 </div>
@@ -248,36 +230,36 @@ export default function OSINTDashboard() {
 
             {/* Relations */}
             {relations && (
-              <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-6">
-                <h2 className="mb-4 text-xl font-bold text-white">Network Relations</h2>
+              <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: 'var(--card)', padding: '1.5rem' }}>
+                <h2 style={{ marginBottom: '1rem', fontSize: '1.25rem', fontWeight: 700, color: 'var(--text)' }}>Network Relations</h2>
                 
-                <div className="mb-4 grid gap-4 md:grid-cols-3">
-                  <div className="rounded-lg border border-zinc-700 bg-black/20 p-4">
-                    <div className="text-2xl font-bold text-red-400">{relations.networkSize}</div>
-                    <div className="text-xs text-zinc-400">Connections</div>
+                <div style={{ marginBottom: '1rem', display: 'grid', gap: '1rem', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))' }}>
+                  <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: 'var(--bg-alt)', padding: '1rem' }}>
+                    <div style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--red)' }}>{relations.networkSize}</div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>Connections</div>
                   </div>
-                  <div className="rounded-lg border border-zinc-700 bg-black/20 p-4">
-                    <div className="text-2xl font-bold text-red-400">{(relations.centrality * 100).toFixed(0)}%</div>
-                    <div className="text-xs text-zinc-400">Centrality</div>
+                  <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: 'var(--bg-alt)', padding: '1rem' }}>
+                    <div style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--red)' }}>{(relations.centrality * 100).toFixed(0)}%</div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>Centrality</div>
                   </div>
-                  <div className="rounded-lg border border-zinc-700 bg-black/20 p-4">
-                    <div className="text-2xl font-bold text-red-400">{relations.sharedSafes.length}</div>
-                    <div className="text-xs text-zinc-400">Shared Safes</div>
+                  <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: 'var(--bg-alt)', padding: '1rem' }}>
+                    <div style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--red)' }}>{relations.sharedSafes.length}</div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>Shared Safes</div>
                   </div>
                 </div>
 
                 {relations.handshakes.length > 0 && (
                   <div>
-                    <h3 className="mb-3 text-sm font-semibold text-red-400">A2A Handshakes</h3>
-                    <div className="space-y-2">
+                    <h3 style={{ marginBottom: '0.75rem', fontSize: '0.875rem', fontWeight: 600, color: 'var(--red)' }}>A2A Handshakes</h3>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                       {relations.handshakes.slice(0, 5).map((h, i) => (
-                        <div key={i} className="flex items-center justify-between rounded-lg border border-zinc-700 bg-black/20 px-4 py-2 text-sm">
-                          <span className="font-mono text-white">{h.peer}</span>
-                          <span className="text-zinc-400">{h.status}</span>
+                        <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: 'var(--bg-alt)', padding: '0.5rem 1rem', fontSize: '0.875rem' }}>
+                          <span className="mono" style={{ color: 'var(--text)' }}>{h.peer}</span>
+                          <span style={{ color: 'var(--muted)' }}>{h.status}</span>
                         </div>
                       ))}
                       {relations.handshakes.length > 5 && (
-                        <div className="text-center text-xs text-zinc-400">
+                        <div style={{ textAlign: 'center', fontSize: '0.75rem', color: 'var(--muted)' }}>
                           +{relations.handshakes.length - 5} more
                         </div>
                       )}
@@ -289,32 +271,32 @@ export default function OSINTDashboard() {
 
             {/* Exposure */}
             {exposure && (
-              <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-6">
-                <h2 className="mb-4 text-xl font-bold text-white">Exposure Assessment</h2>
+              <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: 'var(--card)', padding: '1.5rem' }}>
+                <h2 style={{ marginBottom: '1rem', fontSize: '1.25rem', fontWeight: 700, color: 'var(--text)' }}>Exposure Assessment</h2>
                 
-                <div className="mb-6 flex items-center justify-between rounded-lg border border-zinc-700 bg-black/20 p-4">
+                <div style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: 'var(--bg-alt)', padding: '1rem' }}>
                   <div>
-                    <div className="text-sm text-zinc-400">Overall Risk Score</div>
-                    <div className={`text-3xl font-bold ${getRiskColor(exposure.riskLevel)}`}>
+                    <div style={{ fontSize: '0.875rem', color: 'var(--muted)' }}>Overall Risk Score</div>
+                    <div style={{ fontSize: '2rem', fontWeight: 700, color: exposure.riskLevel === 'low' ? 'var(--green)' : exposure.riskLevel === 'medium' ? 'var(--amber)' : 'var(--red)' }}>
                       {exposure.score}/100
                     </div>
                   </div>
-                  <div className={`rounded-lg px-4 py-2 text-sm font-bold uppercase ${getRiskColor(exposure.riskLevel)}`}>
-                    {exposure.riskLevel}
-                  </div>
+                  <span className={`pill ${exposure.riskLevel === 'low' ? 'pill-green' : exposure.riskLevel === 'medium' ? 'pill-amber' : 'pill-red'}`}>
+                    {exposure.riskLevel.toUpperCase()}
+                  </span>
                 </div>
 
                 {exposure.exposures.length > 0 && (
                   <div>
-                    <h3 className="mb-3 text-sm font-semibold text-red-400">Identified Exposures</h3>
-                    <div className="space-y-2">
+                    <h3 style={{ marginBottom: '0.75rem', fontSize: '0.875rem', fontWeight: 600, color: 'var(--red)' }}>Identified Exposures</h3>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                       {exposure.exposures.map((exp, i) => (
-                        <div key={i} className={`rounded-lg border px-4 py-3 ${getSeverityColor(exp.severity)}`}>
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm font-semibold">{exp.type}</span>
-                            <span className="text-xs uppercase">{exp.severity}</span>
+                        <div key={i} style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: exp.severity === 'high' || exp.severity === 'critical' ? 'var(--red-light)' : exp.severity === 'medium' ? 'var(--amber-bg)' : 'var(--green-bg)', padding: '0.75rem 1rem' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <span style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text)' }}>{exp.type}</span>
+                            <span style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--muted)' }}>{exp.severity}</span>
                           </div>
-                          <div className="mt-1 text-xs opacity-80">{exp.description}</div>
+                          <div style={{ marginTop: '0.25rem', fontSize: '0.75rem', color: 'var(--muted)' }}>{exp.description}</div>
                         </div>
                       ))}
                     </div>
@@ -327,10 +309,10 @@ export default function OSINTDashboard() {
 
         {/* Empty state */}
         {!loading && !footprint && !relations && !exposure && !error && (
-          <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-12 text-center">
-            <div className="text-4xl mb-4">🔍</div>
-            <h3 className="text-lg font-semibold text-white">No Analysis Yet</h3>
-            <p className="mt-2 text-sm text-zinc-400">
+          <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: 'var(--card)', padding: '3rem', textAlign: 'center' }}>
+            <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>🔍</div>
+            <h3 style={{ fontSize: '1.125rem', fontWeight: 600, color: 'var(--text)' }}>No Analysis Yet</h3>
+            <p style={{ marginTop: '0.5rem', fontSize: '0.875rem', color: 'var(--muted)' }}>
               Enter an agent name above to start OSINT analysis
             </p>
           </div>
