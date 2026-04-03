@@ -79,13 +79,17 @@ export async function probeX402Endpoint(url: string): Promise<X402ProbeResult> {
         parsedInfo = { raw: paymentInfo };
       }
       
+      // Merge chains from X-Payment-Chain header into payment methods for chain detection
+      const chainMethods = paymentChain ? paymentChain.split(',').map(s => s.trim()) : [];
+      const methods = acceptPayment ? acceptPayment.split(',').map(s => s.trim()) : parsedInfo.methods || [];
+      
       return {
         url,
         x402Enabled: true,
         paymentRequired: true,
-        paymentMethods: acceptPayment ? acceptPayment.split(',').map(s => s.trim()) : parsedInfo.methods || [],
-        minAmount: parsedInfo.minAmount || parsedInfo.amount,
-        destinationAddress: parsedInfo.destination || parsedInfo.address,
+        paymentMethods: [...methods, ...chainMethods],
+        minAmount: parsedInfo.minAmount || parsedInfo.amount || response.headers.get('X-Payment-Amount') || undefined,
+        destinationAddress: parsedInfo.destination || parsedInfo.address || response.headers.get('X-Payment-Destination') || undefined,
         supportedTokens: parsedInfo.tokens || parsedInfo.supportedTokens,
         probeStatus: 'payment_required',
         responseTime,
@@ -134,6 +138,9 @@ export async function probeX402Endpoint(url: string): Promise<X402ProbeResult> {
 export async function probeAgentX402(agent: string, endpoints?: string[]): Promise<AgentX402Profile> {
   const WORKER_URL = process.env.WORKER_URL || 'https://nftmail-email-worker.richard-159.workers.dev';
   
+  // Determine origin for internal API calls (works in both dev and production)
+  const SITE_ORIGIN = process.env.NEXT_PUBLIC_SITE_URL || process.env.URL || 'https://notapaperclip.red';
+  
   // Get agent identity to find endpoints
   const identityRes = await fetch(`${WORKER_URL}`, {
     method: 'POST',
@@ -148,13 +155,15 @@ export async function probeAgentX402(agent: string, endpoints?: string[]): Promi
     const identity = await identityRes.json();
     // Use MCP servers as potential x402 endpoints
     if (identity.mcpServers && Array.isArray(identity.mcpServers)) {
-      mcpEndpoints = identity.mcpServers;
+      mcpEndpoints = [...mcpEndpoints, ...identity.mcpServers];
     }
-    // Construct agent card URL
-    if (identity.tld) {
-      agentCardUrl = `https://${agent}.${identity.tld}/.well-known/agent-card.json`;
-    }
+    // Use actual agent card URL from worker (not a constructed .gno domain)
+    agentCardUrl = identity.links?.agentCard || null;
   }
+  
+  // Always include the x402 gateway endpoint for this agent
+  const gatewayUrl = `${SITE_ORIGIN}/api/x402/gateway?agent=${encodeURIComponent(agent)}`;
+  mcpEndpoints = [gatewayUrl, ...mcpEndpoints];
   
   // Probe all endpoints
   const endpointResults = await Promise.all(
@@ -179,7 +188,14 @@ export async function probeAgentX402(agent: string, endpoints?: string[]): Promi
   // Aggregate results
   const supportedEndpoints = endpointResults.filter(e => e.supportsX402);
   const allMethods = [...new Set(supportedEndpoints.flatMap(e => e.methods))];
-  const chains = [...new Set(allMethods.filter(m => 
+  
+  // Extract chains from x402 headers (X-Payment-Chain) and payment methods
+  const chainCandidates = [...allMethods];
+  for (const ep of supportedEndpoints) {
+    // The gateway returns chains in the payment info
+    if (ep.destinationAddress) chainCandidates.push('gnosis');
+  }
+  const chains = [...new Set(chainCandidates.filter(m => 
     ['ethereum', 'solana', 'base', 'gnosis', 'polygon'].includes(m.toLowerCase())
   ))];
   
@@ -190,17 +206,17 @@ export async function probeAgentX402(agent: string, endpoints?: string[]): Promi
     totalTransactions: null as number | null,
   };
   
-  // Check if micropayment ready (supports small amounts quickly)
+  // Check if micropayment ready (supports small amounts ≤ 0.01)
   const micropaymentReady = supportedEndpoints.some(e => {
     const minAmount = parseFloat(e.minAmount || '0');
-    return minAmount > 0 && minAmount <= 0.01; // Less than 0.01 units
+    return minAmount > 0 && minAmount <= 0.01;
   });
   
   return {
     agent,
     x402Support: supportedEndpoints.length > 0 || (agentCardX402?.x402Enabled ?? false),
     paymentEndpoints: endpointResults,
-    supportedChains: chains.length > 0 ? chains : ['gnosis', 'base'], // Default to agent chains
+    supportedChains: chains.length > 0 ? chains : (supportedEndpoints.length > 0 ? ['gnosis', 'base'] : []),
     rateLimits: {
       requestsPerMinute: 60,
       hasRateLimiting: false,
