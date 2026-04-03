@@ -12,12 +12,12 @@ if (typeof window === 'undefined') {
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import AlignmentScore from './components/AlignmentScore';
-import GoalDriftTimeline from './components/GoalDriftTimeline';
-import type { AlignmentResult } from './services/alignment-calculator';
-import type { DriftResult } from './services/goal-drift-detector';
+import AlignmentScore from '../components/AlignmentScore';
+import GoalDriftTimeline from '../components/GoalDriftTimeline';
+import type { AlignmentResult } from '../services/alignment-calculator';
+import type { DriftResult } from '../services/goal-drift-detector';
 
-import type { Member, Attestation, VerifyResult } from './types';
+import type { Member, Attestation, VerifyResult } from '../types';
 
 type SearchStatus = 'idle' | 'searching' | 'found' | 'notfound' | 'error';
 
