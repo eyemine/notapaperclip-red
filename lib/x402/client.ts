@@ -235,7 +235,7 @@ export async function checkAgentSolvency(agent: string): Promise<{
     }
     
     const identity = await identityRes.json();
-    const safeAddress = identity.safeAddress;
+    const safeAddress = identity.safe;
     
     if (!safeAddress) {
       return { solvent: false, balance: 0, currency: 'xDAI', minimumRequired: 1 };

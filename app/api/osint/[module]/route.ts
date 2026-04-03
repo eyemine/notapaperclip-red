@@ -155,16 +155,25 @@ async function analyzeFootprint(agent: string): Promise<AgentFootprint> {
   if (!identityRes.ok) throw new Error('Agent not found');
   const identity = await identityRes.json();
   
+  // Extract fields from actual worker response shape
+  const safeAddress = identity.safe || null;
+  const tld = identity.identityNft?.tld || null;
+  const tldBase = tld ? tld.replace(/\.gno$/, '') : null; // 'molt.gno' → 'molt'
+  const ownerWallet = identity.identityNft?.owner || null;
+  const agentCardUrl = identity.links?.agentCard || null;
+  const mcpServers: string[] = identity.mcpServers || [];
+  const genomeUrl = identity.genomeUrl || identity.links?.genome || null;
+  
   let onChainData = {
-    safeAddress: identity.safe || null,
-    tbaAddress: identity.tbaAddress || null,
+    safeAddress,
+    tbaAddress: null as string | null,
     totalTransactions: 0,
     firstSeen: null as number | null,
     lastSeen: null as number | null,
     balances: [] as { token: string; amount: string }[],
   };
   
-  if (identity.safe) {
+  if (safeAddress) {
     try {
       const [balanceRes, txRes] = await Promise.all([
         fetch(GNOSIS_RPC, {
@@ -174,10 +183,10 @@ async function analyzeFootprint(agent: string): Promise<AgentFootprint> {
             jsonrpc: '2.0',
             id: 1,
             method: 'eth_getBalance',
-            params: [identity.safe, 'latest'],
+            params: [safeAddress, 'latest'],
           }),
         }),
-        fetch(`${GNOSISSCAN_API}?module=account&action=txlist&address=${identity.safe}&startblock=0&endblock=99999999&sort=asc&apikey=YourApiKeyToken`),
+        fetch(`${GNOSISSCAN_API}?module=account&action=txlist&address=${safeAddress}&startblock=0&endblock=99999999&sort=asc&apikey=YourApiKeyToken`),
       ]);
       
       const balanceData = await balanceRes.json();
@@ -199,30 +208,24 @@ async function analyzeFootprint(agent: string): Promise<AgentFootprint> {
     }
   }
   
-  // Check for genome URL - ghostagents have built-in genome URLs
-  let genomeUrl = identity.genomeUrl || null;
-  if (!genomeUrl && identity.tld && identity.tld !== 'unknown') {
-    // Construct genome URL for ghostagent agents
-    genomeUrl = `https://gateway.lighthouse.storage/ipfs/${identity.tld}-genome`;
-  }
+  // x402 capability — all ghostagent.ninja agents with known TLDs have built-in x402 readiness
+  const KNOWN_TLDS = ['molt', 'nftmail', 'openclaw', 'picoclaw', 'vault', 'agent'];
+  const hasX402Capability = !!(tldBase && KNOWN_TLDS.includes(tldBase));
   
-  // Check for x402 capability - ghostagents have built-in x402 readiness
-  const hasX402Capability = identity.tld && ['molt', 'nftmail', 'openclaw', 'picoclaw', 'vault', 'agent'].includes(identity.tld);
-  
-  const hasPublicEndpoints = identity.mcpServers && identity.mcpServers.length > 0;
+  const hasPublicEndpoints = mcpServers.length > 0;
   let riskLevel: 'low' | 'medium' | 'high' = 'low';
-  if (!identity.safe) riskLevel = 'high';
+  if (!safeAddress) riskLevel = 'high';
   else if (onChainData.balances.length === 0 || parseFloat(onChainData.balances[0]?.amount || '0') < 1) riskLevel = 'medium';
   
   return {
     agent,
     onChain: onChainData,
     offChain: {
-      tld: identity.tld || 'unknown',
+      tld: tld || 'unknown',
       tier: identity.accountTier || identity.tier || 'basic',
       totalXdaiBurned: identity.totalXdaiBurned || 0,
       surgeScore: identity.surgeReputationScore || 0,
-      mcpServers: identity.mcpServers || [],
+      mcpServers,
       genomeUrl,
       hasX402Capability,
     },
@@ -237,41 +240,60 @@ async function analyzeFootprint(agent: string): Promise<AgentFootprint> {
 }
 
 async function mapRelations(agent: string): Promise<AgentRelations> {
-  const [handshakesRes, identityRes] = await Promise.all([
-    fetch(`${WORKER_URL}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'listHandshakes', agentName: agent }),
-    }),
-    fetch(`${WORKER_URL}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'getAgentIdentity', agentName: agent }),
-    }),
-  ]);
-  
-  let handshakes: any[] = [];
-  if (handshakesRes.ok) {
-    const data = await handshakesRes.json();
-    handshakes = data.handshakes || [];
-  }
+  // Note: worker does not have a 'listHandshakes' action.
+  // Use getAgentIdentity to extract what relation data we can.
+  const identityRes = await fetch(`${WORKER_URL}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'getAgentIdentity', agentName: agent }),
+  });
   
   let sharedSafes: string[] = [];
+  let erc8004Chains: string[] = [];
+  
   if (identityRes.ok) {
     const identity = await identityRes.json();
     if (identity.safe) sharedSafes.push(identity.safe);
+    // Count chain registrations as network connections
+    if (identity.erc8004) {
+      erc8004Chains = Object.keys(identity.erc8004);
+    }
   }
   
-  const networkSize = handshakes.length;
+  // List all agents and check for shared Safes as a proxy for relations
+  const listRes = await fetch(`${WORKER_URL}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'listAgents' }),
+  });
+  
+  const handshakes: AgentRelations['handshakes'] = [];
+  if (listRes.ok) {
+    const data = await listRes.json();
+    const agents = data.agents || [];
+    for (const a of agents) {
+      const peerName = typeof a === 'string' ? a : a.name;
+      if (peerName === agent) continue;
+      // Fetch peer identity to check for shared Safe
+      const peerRes = await fetch(`${WORKER_URL}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'getAgentIdentity', agentName: peerName }),
+      });
+      if (!peerRes.ok) continue;
+      const peer = await peerRes.json();
+      if (peer.safe && sharedSafes.includes(peer.safe)) {
+        handshakes.push({ peer: peerName, status: 'shared-safe', timestamp: Date.now() });
+      }
+    }
+  }
+  
+  const networkSize = handshakes.length + erc8004Chains.length;
   const centrality = Math.min(networkSize / 10, 1);
   
   return {
     agent,
-    handshakes: handshakes.map((h: any) => ({
-      peer: h.peerAgent || h.peer || 'unknown',
-      status: h.status || 'unknown',
-      timestamp: h.timestamp || Date.now(),
-    })),
+    handshakes,
     sharedSafes,
     networkSize,
     centrality,
@@ -286,18 +308,11 @@ async function buildGraph(agent: string, depth: number = 2): Promise<GraphData> 
   async function explore(currentAgent: string, currentDepth: number) {
     if (currentDepth <= 0) return;
     
-    const [identityRes, handshakesRes] = await Promise.all([
-      fetch(`${WORKER_URL}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'getAgentIdentity', agentName: currentAgent }),
-      }).catch(() => null),
-      fetch(`${WORKER_URL}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'listHandshakes', agentName: currentAgent }),
-      }).catch(() => null),
-    ]);
+    const identityRes = await fetch(`${WORKER_URL}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'getAgentIdentity', agentName: currentAgent }),
+    }).catch(() => null);
     
     if (identityRes?.ok) {
       const identity = await identityRes.json();
@@ -317,17 +332,24 @@ async function buildGraph(agent: string, depth: number = 2): Promise<GraphData> 
       });
     }
     
-    if (handshakesRes?.ok) {
-      const data = await handshakesRes.json();
-      for (const h of (data.handshakes || [])) {
-        const peer = h.peerAgent || h.peer;
-        if (!peer || visited.has(peer)) continue;
+    // Use listAgents to find peers (no listHandshakes action available)
+    const listRes = await fetch(`${WORKER_URL}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'listAgents' }),
+    }).catch(() => null);
+    
+    if (listRes?.ok) {
+      const data = await listRes.json();
+      for (const a of (data.agents || [])) {
+        const peerName = typeof a === 'string' ? a : a.name;
+        if (!peerName || visited.has(peerName)) continue;
         
-        visited.add(peer);
-        nodes.push({ id: peer, label: peer, type: 'agent' });
-        edges.push({ source: currentAgent, target: peer, type: 'handshake', weight: 0.8 });
+        visited.add(peerName);
+        nodes.push({ id: peerName, label: peerName, type: 'agent' });
+        edges.push({ source: currentAgent, target: peerName, type: 'peer', weight: 0.8 });
         
-        await explore(peer, currentDepth - 1);
+        await explore(peerName, currentDepth - 1);
       }
     }
   }
@@ -349,8 +371,8 @@ async function correlateIdentity(handle: string, platforms: string[]): Promise<C
   const correlated: CrossPlatformIdentity['correlatedIdentities'] = [];
   
   // Check ERC-8004 across chains
-  if (identity.erc8004Ids) {
-    Object.entries(identity.erc8004Ids).forEach(([chain, id]: [string, any]) => {
+  if (identity.erc8004) {
+    Object.entries(identity.erc8004).forEach(([chain, id]: [string, any]) => {
       if (id) {
         correlated.push({
           platform: `erc8004-${chain}`,
@@ -362,18 +384,28 @@ async function correlateIdentity(handle: string, platforms: string[]): Promise<C
     });
   }
   
-  // Check for linked ENS
-  if (identity.ownerWallet) {
+  // Check for linked Safe
+  if (identity.safe) {
     correlated.push({
       platform: 'gnosis-safe',
-      handle: identity.safe || 'unknown',
+      handle: identity.safe,
+      confidence: 100,
+      verified: true,
+    });
+  }
+  
+  // Check for owner wallet
+  if (identity.identityNft?.owner) {
+    correlated.push({
+      platform: 'nft-owner',
+      handle: identity.identityNft.owner,
       confidence: 100,
       verified: true,
     });
   }
   
   // A2A card cross-reference
-  if (identity.a2aCardUrl) {
+  if (identity.links?.a2aCard) {
     correlated.push({
       platform: 'a2a-protocol',
       handle: handle,
@@ -382,8 +414,19 @@ async function correlateIdentity(handle: string, platforms: string[]): Promise<C
     });
   }
   
+  // NFTmail email
+  if (identity.email) {
+    correlated.push({
+      platform: 'nftmail',
+      handle: identity.email,
+      confidence: 100,
+      verified: true,
+    });
+  }
+  
+  const tld = identity.identityNft?.tld || 'gno';
   return {
-    primaryIdentity: `${handle}.${identity.tld || 'gno'}`,
+    primaryIdentity: `${handle}.${tld}`,
     correlatedIdentities: correlated,
   };
 }
@@ -409,8 +452,8 @@ async function runRecon(target: string, modules: string[]): Promise<ReconReport>
       const identity = await identityRes.json();
       results.crypto = {
         safeAddress: identity.safe,
-        tbaAddress: identity.tbaAddress,
-        nfts: [],
+        tbaAddress: null,
+        nfts: identity.identityNft ? [identity.identityNft] : [],
       };
     }
   }
@@ -439,10 +482,17 @@ async function checkExposure(agent: string): Promise<ExposureReport> {
   if (!identityRes.ok) throw new Error('Agent not found');
   const identity = await identityRes.json();
   
+  // Extract from actual worker shape
+  const safeAddress = identity.safe || null;
+  const tld = identity.identityNft?.tld || null;
+  const tldBase = tld ? tld.replace(/\.gno$/, '') : null;
+  const KNOWN_TLDS = ['molt', 'nftmail', 'openclaw', 'picoclaw', 'vault', 'agent'];
+  const hasX402 = !!(tldBase && KNOWN_TLDS.includes(tldBase));
+  
   const exposures: Array<{ type: string; severity: string; description: string }> = [];
   let score = 100;
   
-  if (!identity.safe) {
+  if (!safeAddress) {
     exposures.push({ type: 'no-safe', severity: 'high', description: 'Agent has no Gnosis Safe address registered' });
     score -= 30;
   } else {
@@ -454,7 +504,7 @@ async function checkExposure(agent: string): Promise<ExposureReport> {
           jsonrpc: '2.0',
           id: 1,
           method: 'eth_getBalance',
-          params: [identity.safe, 'latest'],
+          params: [safeAddress, 'latest'],
         }),
       });
       
@@ -471,14 +521,26 @@ async function checkExposure(agent: string): Promise<ExposureReport> {
     }
   }
   
-  if (!identity.genomeUrl) {
-    exposures.push({ type: 'no-genome', severity: 'low', description: 'Agent has no genome metadata URL' });
-    score -= 10;
+  // Genome check — worker doesn't store genomeUrl, so check if it's a known TLD agent
+  if (!identity.genomeUrl && !identity.links?.genome) {
+    if (!hasX402) {
+      // Only flag as exposure if NOT a known ghostagent TLD (they have built-in capabilities)
+      exposures.push({ type: 'no-genome', severity: 'low', description: 'Agent has no genome metadata URL' });
+      score -= 10;
+    }
   }
   
-  if (identity.mcpServers?.length > 0) {
+  if ((identity.mcpServers || []).length > 0) {
     exposures.push({ type: 'public-endpoints', severity: 'low', description: `Agent has ${identity.mcpServers.length} public MCP endpoints` });
     score -= 5;
+  }
+  
+  // Positive signals
+  if (hasX402) {
+    score = Math.min(score + 10, 100);
+  }
+  if (identity.erc8004 && Object.keys(identity.erc8004).length >= 3) {
+    score = Math.min(score + 5, 100); // Registered on all 3 chains
   }
   
   let riskLevel: 'low' | 'medium' | 'high' | 'critical' = 'low';
@@ -534,13 +596,14 @@ async function analyzeExhaust(agent: string): Promise<DigitalExhaust> {
   if (!identityRes.ok) throw new Error('Agent not found');
   const identity = await identityRes.json();
   
+  const safeAddress = identity.safe || null;
   const chains = [];
   
   // Gnosis transactions
-  if (identity.safe) {
+  if (safeAddress) {
     try {
       const gnosisTx = await fetch(
-        `${GNOSISSCAN_API}?module=account&action=txlist&address=${identity.safe}&startblock=0&endblock=99999999&sort=asc&apikey=YourApiKeyToken`
+        `${GNOSISSCAN_API}?module=account&action=txlist&address=${safeAddress}&startblock=0&endblock=99999999&sort=asc&apikey=YourApiKeyToken`
       );
       const gnosisData = await gnosisTx.json();
       if (gnosisData.status === '1' && Array.isArray(gnosisData.result)) {
@@ -550,12 +613,12 @@ async function analyzeExhaust(agent: string): Promise<DigitalExhaust> {
   }
   
   // Check for Base
-  if (identity.erc8004Ids?.base) {
+  if (identity.erc8004?.base) {
     chains.push({ chain: 'base', txCount: 0, volume: 0 });
   }
   
   // Check for Base Sepolia
-  if (identity.erc8004Ids?.baseSepolia) {
+  if (identity.erc8004?.baseSepolia) {
     chains.push({ chain: 'base-sepolia', txCount: 0, volume: 0 });
   }
   
@@ -674,21 +737,32 @@ async function resolveAgentIdentifier(raw: string, chain?: string): Promise<stri
     
     // If chain is specified, only search that chain
     const chainsToCheck = chain ? [chain] : ['gnosis', 'base', 'baseSepolia'];
+    const targetId = parseInt(stripped);
     
-    // Search through agents for matching ID on specified chain(s)
-    for (const agent of agents) {
-      const identityRes = await fetch(`${WORKER_URL}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'getAgentIdentity', agentName: agent }),
-      });
-      if (!identityRes.ok) continue;
-      const identity = await identityRes.json();
+    // listAgents returns objects with inline erc8004 data — check directly
+    for (const agentObj of agents) {
+      const name = typeof agentObj === 'string' ? agentObj : agentObj.name;
+      const erc8004 = typeof agentObj === 'string' ? null : agentObj.erc8004;
       
-      // Check chains for matching agentId
-      for (const chainToCheck of chainsToCheck) {
-        if (identity.erc8004Ids?.[chainToCheck]?.agentId === parseInt(stripped)) {
-          return agent;
+      if (erc8004) {
+        for (const chainToCheck of chainsToCheck) {
+          if (erc8004[chainToCheck]?.agentId === targetId) {
+            return name;
+          }
+        }
+      } else {
+        // Fallback: fetch individual identity
+        const identityRes = await fetch(`${WORKER_URL}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'getAgentIdentity', agentName: name }),
+        });
+        if (!identityRes.ok) continue;
+        const identity = await identityRes.json();
+        for (const chainToCheck of chainsToCheck) {
+          if (identity.erc8004?.[chainToCheck]?.agentId === targetId) {
+            return name;
+          }
         }
       }
     }
