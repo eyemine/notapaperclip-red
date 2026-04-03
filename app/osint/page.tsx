@@ -52,12 +52,37 @@ interface ExposureData {
   score: number;
 }
 
+interface X402Data {
+  agent: string;
+  x402: {
+    enabled: boolean;
+    micropaymentReady: boolean;
+    supportedChains: string[];
+    paymentEndpoints: Array<{
+      url: string;
+      supportsX402: boolean;
+      methods: string[];
+    }>;
+  };
+  solvency: {
+    solvent: boolean;
+    balance: number | null;
+    currency: string;
+    minimumRequired: number;
+  };
+  footprint: {
+    score: number;
+    readiness: 'ready' | 'partial' | 'not_ready';
+  };
+}
+
 export default function OSINTDashboard() {
   const [agentName, setAgentName] = useState('');
   const [loading, setLoading] = useState(false);
   const [footprint, setFootprint] = useState<FootprintData | null>(null);
   const [relations, setRelations] = useState<RelationsData | null>(null);
   const [exposure, setExposure] = useState<ExposureData | null>(null);
+  const [x402, setX402] = useState<X402Data | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function handleAnalyze() {
@@ -68,14 +93,16 @@ export default function OSINTDashboard() {
     setFootprint(null);
     setRelations(null);
     setExposure(null);
+    setX402(null);
 
     try {
       // Fetch all three modules in parallel - pass the raw query to let API resolve it
       const encodedQuery = encodeURIComponent(agentName.trim());
-      const [footprintRes, relationsRes, exposureRes] = await Promise.all([
+      const [footprintRes, relationsRes, exposureRes, x402Res] = await Promise.all([
         fetch(`/api/osint/footprint?agent=${encodedQuery}`),
         fetch(`/api/osint/relations?agent=${encodedQuery}`),
         fetch(`/api/osint/exposure?agent=${encodedQuery}`),
+        fetch(`/api/x402/probe?agent=${encodedQuery}`),
       ]);
 
       if (!footprintRes.ok) {
@@ -86,10 +113,12 @@ export default function OSINTDashboard() {
       const footprintData = await footprintRes.json();
       const relationsData = relationsRes.ok ? await relationsRes.json() : null;
       const exposureData = exposureRes.ok ? await exposureRes.json() : null;
+      const x402Data = x402Res.ok ? await x402Res.json() : null;
 
       setFootprint(footprintData);
       setRelations(relationsData);
       setExposure(exposureData);
+      setX402(x402Data);
     } catch (err: any) {
       setError(err.message || 'Failed to analyze agent');
     } finally {
@@ -321,11 +350,81 @@ export default function OSINTDashboard() {
                 )}
               </div>
             )}
+
+            {/* x402 Payment Capabilities */}
+            {x402 && (
+              <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: 'var(--card)', padding: '1.5rem' }}>
+                <h2 style={{ marginBottom: '1rem', fontSize: '1.25rem', fontWeight: 700, color: 'var(--text)' }}>x402 Payment Capabilities</h2>
+                <p style={{ marginBottom: '1rem', fontSize: '0.75rem', color: 'var(--muted)' }}>
+                  HTTP 402 Payment Required protocol support analysis
+                </p>
+                
+                <div style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: 'var(--bg-alt)', padding: '1rem' }}>
+                  <div>
+                    <div style={{ fontSize: '0.875rem', color: 'var(--muted)' }}>x402 Readiness Score</div>
+                    <div style={{ fontSize: '2rem', fontWeight: 700, color: x402.footprint.readiness === 'ready' ? 'var(--green)' : x402.footprint.readiness === 'partial' ? 'var(--amber)' : 'var(--red)' }}>
+                      {x402.footprint.score}/100
+                    </div>
+                  </div>
+                  <span className={`pill ${x402.footprint.readiness === 'ready' ? 'pill-green' : x402.footprint.readiness === 'partial' ? 'pill-amber' : 'pill-red'}`}>
+                    {x402.footprint.readiness.toUpperCase().replace('_', ' ')}
+                  </span>
+                </div>
+
+                <div style={{ display: 'grid', gap: '1rem', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', marginBottom: '1.5rem' }}>
+                  <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: 'var(--bg-alt)', padding: '1rem' }}>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '0.5rem' }}>x402 Support</div>
+                    <div style={{ fontSize: '1.25rem', fontWeight: 700, color: x402.x402.enabled ? 'var(--green)' : 'var(--red)' }}>
+                      {x402.x402.enabled ? 'Enabled' : 'Not Detected'}
+                    </div>
+                  </div>
+                  <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: 'var(--bg-alt)', padding: '1rem' }}>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '0.5rem' }}>Micropayment Ready</div>
+                    <div style={{ fontSize: '1.25rem', fontWeight: 700, color: x402.x402.micropaymentReady ? 'var(--green)' : 'var(--amber)' }}>
+                      {x402.x402.micropaymentReady ? 'Yes' : 'No'}
+                    </div>
+                  </div>
+                  <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: 'var(--bg-alt)', padding: '1rem' }}>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '0.5rem' }}>Solvency</div>
+                    <div style={{ fontSize: '1.25rem', fontWeight: 700, color: x402.solvency.solvent ? 'var(--green)' : 'var(--red)' }}>
+                      {x402.solvency.balance?.toFixed(2) || '0'} {x402.solvency.currency}
+                    </div>
+                  </div>
+                  <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: 'var(--bg-alt)', padding: '1rem' }}>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '0.5rem' }}>Supported Chains</div>
+                    <div style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--text)' }}>
+                      {x402.x402.supportedChains.join(', ') || 'None detected'}
+                    </div>
+                  </div>
+                </div>
+
+                {x402.x402.paymentEndpoints.length > 0 && (
+                  <div>
+                    <h3 style={{ marginBottom: '0.75rem', fontSize: '0.875rem', fontWeight: 600, color: 'var(--red)' }}>Payment Endpoints</h3>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                      {x402.x402.paymentEndpoints.slice(0, 5).map((ep, i) => (
+                        <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: ep.supportsX402 ? 'var(--green-bg)' : 'var(--bg-alt)', padding: '0.5rem 1rem', fontSize: '0.875rem' }}>
+                          <span className="mono" style={{ color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '60%' }}>{ep.url}</span>
+                          <span style={{ color: ep.supportsX402 ? 'var(--green)' : 'var(--muted)' }}>
+                            {ep.supportsX402 ? '✓ x402' : '—'}
+                          </span>
+                        </div>
+                      ))}
+                      {x402.x402.paymentEndpoints.length > 5 && (
+                        <div style={{ textAlign: 'center', fontSize: '0.75rem', color: 'var(--muted)' }}>
+                          +{x402.x402.paymentEndpoints.length - 5} more endpoints
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 
         {/* Empty state */}
-        {!loading && !footprint && !relations && !exposure && !error && (
+        {!loading && !footprint && !relations && !exposure && !x402 && !error && (
           <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: 'var(--card)', padding: '3rem', textAlign: 'center' }}>
             <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>🔍</div>
             <h3 style={{ fontSize: '1.125rem', fontWeight: 600, color: 'var(--text)' }}>No Analysis Yet</h3>
