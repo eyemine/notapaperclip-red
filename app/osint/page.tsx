@@ -84,6 +84,39 @@ interface X402Data {
   };
 }
 
+interface GlassboxData {
+  agent: string;
+  glassbox_data?: {
+    source: 'molt.gno' | 'openclaw.gno';
+    transparency_score: number;
+    transaction_analysis: {
+      total_transactions: number;
+      total_value: string;
+      unique_counterparties: number;
+      avg_transaction_value: string;
+      frequency_per_day: number;
+    };
+    network_intelligence: {
+      centrality_score: number;
+      connection_count: number;
+      interaction_types: string[];
+      risk_factors: string[];
+    };
+    behavioral_patterns: {
+      activity_frequency: number;
+      detected_patterns: string[];
+      predictive_confidence: number;
+    };
+  };
+  fallback_osint: {
+    footprint: FootprintData | null;
+    exposure: ExposureData | null;
+    basic_reliability: number;
+  };
+  confidence_score: number;
+  timestamp: string;
+}
+
 export default function OSINTDashboard() {
   const [mode, setMode] = useState<LookupMode>('agent');
   const [chain, setChain] = useState('gnosis');
@@ -93,6 +126,7 @@ export default function OSINTDashboard() {
   const [relations, setRelations] = useState<RelationsData | null>(null);
   const [exposure, setExposure] = useState<ExposureData | null>(null);
   const [x402, setX402] = useState<X402Data | null>(null);
+  const [glassbox, setGlassbox] = useState<GlassboxData | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function handleAnalyze() {
@@ -103,7 +137,7 @@ export default function OSINTDashboard() {
     setFootprint(null);
     setRelations(null);
     setExposure(null);
-    setX402(null);
+    setGlassbox(null);
 
     try {
       // Build query based on mode
@@ -114,11 +148,12 @@ export default function OSINTDashboard() {
       
       const encodedQuery = encodeURIComponent(query);
       const chainParam = mode === 'token' ? `&chain=${chain}` : '';
-      const [footprintRes, relationsRes, exposureRes, x402Res] = await Promise.all([
+      const [footprintRes, relationsRes, exposureRes, x402Res, glassboxRes] = await Promise.all([
         fetch(`/api/osint/footprint?agent=${encodedQuery}${chainParam}`),
         fetch(`/api/osint/relations?agent=${encodedQuery}${chainParam}`),
         fetch(`/api/osint/exposure?agent=${encodedQuery}${chainParam}`),
         fetch(`/api/x402/probe?agent=${encodedQuery}${chainParam}`),
+        fetch(`/api/osint/glassbox-enhanced?agent=${encodedQuery}`)
       ]);
 
       if (!footprintRes.ok) {
@@ -130,11 +165,13 @@ export default function OSINTDashboard() {
       const relationsData = relationsRes.ok ? await relationsRes.json() : null;
       const exposureData = exposureRes.ok ? await exposureRes.json() : null;
       const x402Data = x402Res.ok ? await x402Res.json() : null;
+      const glassboxData = glassboxRes.ok ? await glassboxRes.json() : null;
 
       setFootprint(footprintData);
       setRelations(relationsData);
       setExposure(exposureData);
       setX402(x402Data);
+      setGlassbox(glassboxData);
     } catch (err: any) {
       setError(err.message || 'Failed to analyze agent');
     } finally {
@@ -514,19 +551,146 @@ export default function OSINTDashboard() {
                 </div>
               </div>
             )}
+
+            {/* Glassbox Transparency */}
+            {glassbox && (
+              <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: 'var(--bg-alt)', padding: '1.5rem' }}>
+                <h2 style={{ marginBottom: '1rem', fontSize: '1.25rem', fontWeight: 700, color: 'var(--text)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  🔍 Glassbox Transparency
+                  <span style={{ fontSize: '0.75rem', padding: '0.25rem 0.5rem', background: glassbox.glassbox_data ? 'var(--green-bg)' : 'var(--amber-bg)', color: glassbox.glassbox_data ? 'var(--green)' : 'var(--amber)', borderRadius: 'var(--radius)', fontWeight: 500 }}>
+                    {glassbox.glassbox_data ? glassbox.glassbox_data.source : 'Basic OSINT'}
+                  </span>
+                </h2>
+
+                {glassbox.glassbox_data ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                    {/* Transparency Score */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '1rem' }}>
+                      <div style={{ textAlign: 'center', padding: '1rem', background: 'var(--bg)', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}>
+                        <div style={{ fontSize: '2rem', fontWeight: 700, color: glassbox.glassbox_data.transparency_score >= 9 ? 'var(--green)' : glassbox.glassbox_data.transparency_score >= 7 ? 'var(--amber)' : 'var(--red)' }}>
+                          {glassbox.glassbox_data.transparency_score.toFixed(1)}
+                        </div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Transparency Score</div>
+                      </div>
+                      <div style={{ textAlign: 'center', padding: '1rem', background: 'var(--bg)', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}>
+                        <div style={{ fontSize: '2rem', fontWeight: 700, color: 'var(--blue)' }}>
+                          {glassbox.confidence_score.toFixed(2)}
+                        </div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Confidence</div>
+                      </div>
+                    </div>
+
+                    {/* Transaction Analysis */}
+                    <div>
+                      <h3 style={{ marginBottom: '0.75rem', fontSize: '1rem', fontWeight: 600, color: 'var(--text)' }}>Transaction Analysis</h3>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '0.75rem' }}>
+                        <div style={{ padding: '0.75rem', background: 'var(--bg)', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}>
+                          <div style={{ fontSize: '1.25rem', fontWeight: 600, color: 'var(--text)' }}>{glassbox.glassbox_data.transaction_analysis.total_transactions.toLocaleString()}</div>
+                          <div style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>Total Transactions</div>
+                        </div>
+                        <div style={{ padding: '0.75rem', background: 'var(--bg)', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}>
+                          <div style={{ fontSize: '1.25rem', fontWeight: 600, color: 'var(--text)' }}>{glassbox.glassbox_data.transaction_analysis.total_value} xDAI</div>
+                          <div style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>Total Value</div>
+                        </div>
+                        <div style={{ padding: '0.75rem', background: 'var(--bg)', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}>
+                          <div style={{ fontSize: '1.25rem', fontWeight: 600, color: 'var(--text)' }}>{glassbox.glassbox_data.transaction_analysis.unique_counterparties}</div>
+                          <div style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>Counterparties</div>
+                        </div>
+                        <div style={{ padding: '0.75rem', background: 'var(--bg)', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}>
+                          <div style={{ fontSize: '1.25rem', fontWeight: 600, color: 'var(--text)' }}>{glassbox.glassbox_data.transaction_analysis.frequency_per_day.toFixed(1)}</div>
+                          <div style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>Daily Frequency</div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Network Intelligence */}
+                    <div>
+                      <h3 style={{ marginBottom: '0.75rem', fontSize: '1rem', fontWeight: 600, color: 'var(--text)' }}>Network Intelligence</h3>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '0.75rem' }}>
+                        <div style={{ padding: '0.75rem', background: 'var(--bg)', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}>
+                          <div style={{ fontSize: '1.25rem', fontWeight: 600, color: 'var(--text)' }}>{glassbox.glassbox_data.network_intelligence.centrality_score.toFixed(0)}</div>
+                          <div style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>Centrality Score</div>
+                        </div>
+                        <div style={{ padding: '0.75rem', background: 'var(--bg)', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}>
+                          <div style={{ fontSize: '1.25rem', fontWeight: 600, color: 'var(--text)' }}>{glassbox.glassbox_data.network_intelligence.connection_count}</div>
+                          <div style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>Connections</div>
+                        </div>
+                      </div>
+                      {glassbox.glassbox_data.network_intelligence.interaction_types.length > 0 && (
+                        <div style={{ marginTop: '0.75rem' }}>
+                          <div style={{ fontSize: '0.8rem', color: 'var(--muted)', marginBottom: '0.5rem' }}>Interaction Types:</div>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                            {glassbox.glassbox_data.network_intelligence.interaction_types.map((type, i) => (
+                              <span key={i} style={{ fontSize: '0.75rem', padding: '0.25rem 0.5rem', background: 'var(--bg-alt)', border: '1px solid var(--border)', borderRadius: 'var(--radius)' }}>
+                                {type}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {glassbox.glassbox_data.network_intelligence.risk_factors.length > 0 && (
+                        <div style={{ marginTop: '0.75rem' }}>
+                          <div style={{ fontSize: '0.8rem', color: 'var(--red)', marginBottom: '0.5rem' }}>Risk Factors:</div>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                            {glassbox.glassbox_data.network_intelligence.risk_factors.map((risk, i) => (
+                              <span key={i} style={{ fontSize: '0.75rem', padding: '0.25rem 0.5rem', background: 'var(--red-bg)', color: 'var(--red)', border: '1px solid var(--red)', borderRadius: 'var(--radius)' }}>
+                                {risk}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Behavioral Patterns */}
+                    <div>
+                      <h3 style={{ marginBottom: '0.75rem', fontSize: '1rem', fontWeight: 600, color: 'var(--text)' }}>Behavioral Patterns</h3>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '0.75rem' }}>
+                        <div style={{ padding: '0.75rem', background: 'var(--bg)', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}>
+                          <div style={{ fontSize: '1.25rem', fontWeight: 600, color: 'var(--text)' }}>{glassbox.glassbox_data.behavioral_patterns.activity_frequency.toFixed(1)}</div>
+                          <div style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>Activity Frequency</div>
+                        </div>
+                        <div style={{ padding: '0.75rem', background: 'var(--bg)', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}>
+                          <div style={{ fontSize: '1.25rem', fontWeight: 600, color: 'var(--text)' }}>{(glassbox.glassbox_data.behavioral_patterns.predictive_confidence * 100).toFixed(0)}%</div>
+                          <div style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>Predictive Confidence</div>
+                        </div>
+                      </div>
+                      {glassbox.glassbox_data.behavioral_patterns.detected_patterns.length > 0 && (
+                        <div style={{ marginTop: '0.75rem' }}>
+                          <div style={{ fontSize: '0.8rem', color: 'var(--muted)', marginBottom: '0.5rem' }}>Detected Patterns:</div>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                            {glassbox.glassbox_data.behavioral_patterns.detected_patterns.map((pattern, i) => (
+                              <span key={i} style={{ fontSize: '0.75rem', padding: '0.25rem 0.5rem', background: 'var(--blue-bg)', color: 'var(--blue)', border: '1px solid var(--blue)', borderRadius: 'var(--radius)' }}>
+                                {pattern.replace('_', ' ')}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ fontSize: '0.9rem', color: 'var(--muted)' }}>
+                    <p>This agent does not have glassbox transparency enabled. Basic OSINT data available with {glassbox.confidence_score.toFixed(2)} confidence.</p>
+                    <p style={{ marginTop: '0.5rem', fontSize: '0.8rem' }}>Glassbox transparency provides detailed transaction analysis, network intelligence, and behavioral patterns from transparent Molts.</p>
+                  </div>
+                )}
+              </div>
+            )}
+
           </div>
         )}
 
-      {/* Empty state */}
-      {!loading && !footprint && !relations && !exposure && !x402 && !error && (
+        {/* Empty state */}
+      {!loading && !footprint && !relations && !exposure && !x402 && !glassbox && !error && (
         <div className="alert alert-info" style={{ marginTop: '1rem' }}>
-          Enter an agent identifier to start OSINT analysis. The oracle will retrieve on-chain identity, off-chain metadata, network relations, and exposure assessment.
+          Enter an agent identifier to start OSINT analysis. The oracle will retrieve on-chain identity, off-chain metadata, network relations, exposure assessment, and glassbox transparency data.
         </div>
       )}
 
       <footer className="site-footer">
         <div>notapaperclip.red · Independent agent trust oracle</div>
-        <div>OSINT analysis powered by ERC-8004 registry data</div>
+        <div>OSINT analysis powered by ERC-8004 registry data and glassbox transparency</div>
       </footer>
     </div>
   );
