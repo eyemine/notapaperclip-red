@@ -37,32 +37,6 @@ interface FootprintData {
   };
 }
 
-interface ActionableData {
-  agent: string;
-  summary: string;
-  payments: {
-    canReceive: boolean;
-    canSend: boolean;
-    walletAddress: string | null;
-    currency: string;
-    suggestedAmount: number | null;
-    minRecommended: number | null;
-    maxRecommended: number | null;
-    supportedChains: string[];
-    supportedTokens: string[];
-    paymentMethods: string[];
-    estimatedSettlementSeconds: number;
-    confidence: number;
-  };
-  operations: {
-    riskLevel: 'low' | 'medium' | 'high' | 'critical';
-    responseEstimateSeconds: number;
-    publicEndpoints: number;
-    networkConnections: number;
-    actionableNow: string[];
-  };
-}
-
 interface RelationsData {
   agent: string;
   handshakes: Array<{
@@ -119,7 +93,6 @@ export default function OSINTDashboard() {
   const [relations, setRelations] = useState<RelationsData | null>(null);
   const [exposure, setExposure] = useState<ExposureData | null>(null);
   const [x402, setX402] = useState<X402Data | null>(null);
-  const [actionable, setActionable] = useState<ActionableData | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function handleAnalyze() {
@@ -131,7 +104,6 @@ export default function OSINTDashboard() {
     setRelations(null);
     setExposure(null);
     setX402(null);
-    setActionable(null);
 
     try {
       // Build query based on mode
@@ -142,12 +114,11 @@ export default function OSINTDashboard() {
       
       const encodedQuery = encodeURIComponent(query);
       const chainParam = mode === 'token' ? `&chain=${chain}` : '';
-      const [footprintRes, relationsRes, exposureRes, x402Res, actionableRes] = await Promise.all([
+      const [footprintRes, relationsRes, exposureRes, x402Res] = await Promise.all([
         fetch(`/api/osint/footprint?agent=${encodedQuery}${chainParam}`),
         fetch(`/api/osint/relations?agent=${encodedQuery}${chainParam}`),
         fetch(`/api/osint/exposure?agent=${encodedQuery}${chainParam}`),
         fetch(`/api/x402/probe?agent=${encodedQuery}${chainParam}`),
-        fetch(`/api/osint/actionable?agent=${encodedQuery}${chainParam}`),
       ]);
 
       if (!footprintRes.ok) {
@@ -159,13 +130,11 @@ export default function OSINTDashboard() {
       const relationsData = relationsRes.ok ? await relationsRes.json() : null;
       const exposureData = exposureRes.ok ? await exposureRes.json() : null;
       const x402Data = x402Res.ok ? await x402Res.json() : null;
-      const actionableData = actionableRes.ok ? await actionableRes.json() : null;
 
       setFootprint(footprintData);
       setRelations(relationsData);
       setExposure(exposureData);
       setX402(x402Data);
-      setActionable(actionableData);
     } catch (err: any) {
       setError(err.message || 'Failed to analyze agent');
     } finally {
@@ -304,7 +273,7 @@ export default function OSINTDashboard() {
       )}
 
         {/* Results */}
-        {(footprint || relations || exposure || x402 || actionable) && (
+        {(footprint || relations || exposure || x402) && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
             {/* Footprint */}
             {footprint && (
@@ -545,67 +514,11 @@ export default function OSINTDashboard() {
                 </div>
               </div>
             )}
-
-            {actionable && (
-              <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: 'var(--card)', padding: '1.5rem' }}>
-                <h2 style={{ marginBottom: '1rem', fontSize: '1.25rem', fontWeight: 700, color: 'var(--text)' }}>What You Can Do Now</h2>
-                <p style={{ marginBottom: '1rem', fontSize: '0.8rem', color: 'var(--muted)' }}>{actionable.summary}</p>
-
-                <div style={{ display: 'grid', gap: '1rem', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', marginBottom: '1rem' }}>
-                  <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: 'var(--bg-alt)', padding: '1rem' }}>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--muted)', marginBottom: '0.4rem' }}>Suggested Payment</div>
-                    <div style={{ fontSize: '1.15rem', fontWeight: 700, color: 'var(--text)' }}>
-                      {actionable.payments.suggestedAmount ? `${actionable.payments.suggestedAmount} ${actionable.payments.currency}` : 'N/A'}
-                    </div>
-                  </div>
-                  <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: 'var(--bg-alt)', padding: '1rem' }}>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--muted)', marginBottom: '0.4rem' }}>Settlement ETA</div>
-                    <div style={{ fontSize: '1.15rem', fontWeight: 700, color: 'var(--text)' }}>{actionable.payments.estimatedSettlementSeconds}s</div>
-                  </div>
-                  <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: 'var(--bg-alt)', padding: '1rem' }}>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--muted)', marginBottom: '0.4rem' }}>Execution Confidence</div>
-                    <div style={{ fontSize: '1.15rem', fontWeight: 700, color: 'var(--text)' }}>{actionable.payments.confidence}%</div>
-                  </div>
-                </div>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', fontSize: '0.875rem' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ color: 'var(--muted)' }}>Wallet</span>
-                    <span className="mono" style={{ color: 'var(--text)' }}>
-                      {actionable.payments.walletAddress
-                        ? `${actionable.payments.walletAddress.slice(0, 6)}...${actionable.payments.walletAddress.slice(-4)}`
-                        : '—'}
-                    </span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ color: 'var(--muted)' }}>Methods</span>
-                    <span style={{ color: 'var(--text)' }}>{actionable.payments.paymentMethods.join(', ') || '—'}</span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ color: 'var(--muted)' }}>Chains</span>
-                    <span style={{ color: 'var(--text)' }}>{actionable.payments.supportedChains.join(', ') || '—'}</span>
-                  </div>
-                </div>
-
-                {actionable.operations.actionableNow.length > 0 && (
-                  <div style={{ marginTop: '1rem' }}>
-                    <h3 style={{ marginBottom: '0.5rem', fontSize: '0.85rem', fontWeight: 600, color: 'var(--red)' }}>Next Actions</h3>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-                      {actionable.operations.actionableNow.map((step, i) => (
-                        <div key={i} style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: 'var(--bg-alt)', padding: '0.5rem 0.75rem', fontSize: '0.8rem', color: 'var(--text)' }}>
-                          {step}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
           </div>
         )}
 
       {/* Empty state */}
-      {!loading && !footprint && !relations && !exposure && !x402 && !actionable && !error && (
+      {!loading && !footprint && !relations && !exposure && !x402 && !error && (
         <div className="alert alert-info" style={{ marginTop: '1rem' }}>
           Enter an agent identifier to start OSINT analysis. The oracle will retrieve on-chain identity, off-chain metadata, network relations, and exposure assessment.
         </div>

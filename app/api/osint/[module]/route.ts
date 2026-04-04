@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { analyzeX402Footprint, checkAgentSolvency, probeAgentX402 } from '@/lib/x402/client';
 
 const GNOSIS_RPC = process.env.NEXT_PUBLIC_GNOSIS_RPC || 'https://rpc.gnosischain.com';
 const GNOSISSCAN_API = 'https://api.gnosisscan.io/api';
@@ -51,32 +50,6 @@ interface AgentFootprint {
     hasGNSName: boolean;
     hasX402Capability: boolean;
     riskLevel: 'low' | 'medium' | 'high';
-  };
-}
-
-interface ActionableIntel {
-  agent: string;
-  summary: string;
-  payments: {
-    canReceive: boolean;
-    canSend: boolean;
-    walletAddress: string | null;
-    currency: string;
-    suggestedAmount: number | null;
-    minRecommended: number | null;
-    maxRecommended: number | null;
-    supportedChains: string[];
-    supportedTokens: string[];
-    paymentMethods: string[];
-    estimatedSettlementSeconds: number;
-    confidence: number;
-  };
-  operations: {
-    riskLevel: ExposureReport['riskLevel'];
-    responseEstimateSeconds: number;
-    publicEndpoints: number;
-    networkConnections: number;
-    actionableNow: string[];
   };
 }
 
@@ -183,7 +156,7 @@ interface ReputationScore {
 
 interface MonitoringReport {
   agent: string;
-  status: 'normal' | 'alert' | 'critical';
+  status: 'normal' | 'anomaly-detected' | 'alert';
   alerts: Array<{
     type: string;
     severity: string;
@@ -1252,11 +1225,10 @@ async function checkExposure(agent: string): Promise<ExposureReport> {
 
   // Extract from actual worker shape
   const safeAddress = identity.safe || identity.safeAddress || null;
-  const tld = identity.identityNft?.tld || identity.tld || null;
+  const tld = identity.identityNft?.tld || null;
   const tldBase = tld ? tld.replace(/\.gno$/, '') : null;
   const KNOWN_TLDS = ['molt', 'nftmail', 'openclaw', 'picoclaw', 'vault', 'agent'];
   const hasX402 = !!(tldBase && KNOWN_TLDS.includes(tldBase));
-  const hasGNSName = !!tld;
   
   const exposures: Array<{ type: string; severity: string; description: string }> = [];
   let score = 100;
@@ -1290,9 +1262,13 @@ async function checkExposure(agent: string): Promise<ExposureReport> {
     }
   }
   
-  if (!hasGNSName) {
-    exposures.push({ type: 'no-gns-name', severity: 'low', description: 'Agent has no GNS (.gno) registered name' });
-    score -= 10;
+  // Genome check — worker doesn't store genomeUrl, so check if it's a known TLD agent
+  if (!identity.genomeUrl && !identity.links?.genome) {
+    if (!hasX402) {
+      // Only flag as exposure if NOT a known ghostagent TLD (they have built-in capabilities)
+      exposures.push({ type: 'no-gns-name', severity: 'low', description: 'Agent has no GNS (.gno) registered name' });
+      score -= 10;
+    }
   }
   
   if ((identity.mcpServers || []).length > 0) {
@@ -1340,7 +1316,7 @@ async function assessRisk(agent: string): Promise<RiskAssessment> {
   const recommendations = [];
   if (exposure.exposures.some(e => e.type === 'no-safe')) recommendations.push('Register a Gnosis Safe for the agent');
   if (exposure.exposures.some(e => e.type === 'low-balance')) recommendations.push('Fund the agent Safe with at least 1 xDAI');
-  if (exposure.exposures.some(e => e.type === 'no-gns-name')) recommendations.push('Register a GNS (.gno) name for this agent');
+  if (exposure.exposures.some(e => e.type === 'no-genome')) recommendations.push('Upload genome metadata to IPFS');
   
   return {
     agent,
@@ -1481,77 +1457,6 @@ async function monitorAgent(agent: string, alerts: boolean): Promise<MonitoringR
   };
 }
 
-async function actionableIntel(agent: string): Promise<ActionableIntel> {
-  const [footprint, exposure, relations, solvency, x402Profile, x402Footprint] = await Promise.all([
-    analyzeFootprint(agent),
-    checkExposure(agent),
-    mapRelations(agent),
-    checkAgentSolvency(agent),
-    probeAgentX402(agent),
-    analyzeX402Footprint(agent),
-  ]);
-
-  const hasSafe = !!footprint.onChain.safeAddress;
-  const canReceive = hasSafe;
-  const canSend = !!solvency.solvent;
-  const balance = solvency.balance || 0;
-  const suggestedAmount = balance > 5 ? 0.01 : balance > 1 ? 0.005 : balance > 0.2 ? 0.001 : null;
-
-  const endpointMethods = x402Profile.paymentEndpoints
-    .filter((ep) => ep.supportsX402)
-    .flatMap((ep) => ep.methods || []);
-
-  const paymentMethods = Array.from(new Set([
-    ...(hasSafe ? ['direct-transfer'] : []),
-    ...endpointMethods,
-  ]));
-
-  const supportedChains = x402Profile.supportedChains.length > 0
-    ? x402Profile.supportedChains
-    : (hasSafe ? ['gnosis'] : []);
-
-  const actionableNow: string[] = [];
-  if (canReceive && suggestedAmount) {
-    actionableNow.push(`Send ${suggestedAmount} ${solvency.currency} to ${footprint.onChain.safeAddress}`);
-  }
-  if (x402Profile.paymentEndpoints.some((ep) => ep.supportsX402)) {
-    actionableNow.push('Use public x402 HTTP endpoint with payment headers');
-  }
-  if (!canReceive) {
-    actionableNow.push('No Safe payment destination detected');
-  }
-
-  const summary = canReceive
-    ? `Agent can receive payments now via ${hasSafe ? 'Safe direct-transfer' : 'public endpoint'} on ${supportedChains.join(', ') || 'unknown chains'}`
-    : 'No active payment destination found yet';
-
-  return {
-    agent,
-    summary,
-    payments: {
-      canReceive,
-      canSend,
-      walletAddress: footprint.onChain.safeAddress,
-      currency: solvency.currency,
-      suggestedAmount,
-      minRecommended: suggestedAmount ? Math.max(suggestedAmount / 5, 0.0005) : null,
-      maxRecommended: suggestedAmount ? suggestedAmount * 10 : null,
-      supportedChains,
-      supportedTokens: ['xDAI', 'USDC'],
-      paymentMethods,
-      estimatedSettlementSeconds: 30,
-      confidence: Math.min(95, Math.max(40, x402Footprint.footprintScore)),
-    },
-    operations: {
-      riskLevel: exposure.riskLevel,
-      responseEstimateSeconds: x402Profile.paymentEndpoints.length > 0 ? 3 : 8,
-      publicEndpoints: x402Profile.paymentEndpoints.length,
-      networkConnections: relations.networkSize,
-      actionableNow,
-    },
-  };
-}
-
 // ============== AGENT RESOLVER ==============
 // Never throws — unknown agents pass through as-is for graceful handling downstream
 
@@ -1661,11 +1566,8 @@ export async function GET(
         const alerts = searchParams.get('alerts') === 'true';
         result = await monitorAgent(agent, alerts);
         break;
-      case 'actionable':
-        result = await actionableIntel(agent);
-        break;
       default:
-        return NextResponse.json({ error: `Invalid module: ${module}. Valid modules: footprint, relations, graph, correlate, recon, exposure, risk, exhaust, reputation, monitor, actionable` }, { status: 400 });
+        return NextResponse.json({ error: `Invalid module: ${module}. Valid modules: footprint, relations, graph, correlate, recon, exposure, risk, exhaust, reputation, monitor` }, { status: 400 });
     }
     
     return NextResponse.json(result);
