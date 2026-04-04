@@ -167,15 +167,116 @@ interface MonitoringReport {
   currentActivity: Record<string, any>;
 }
 
+// ============== ERC-8004 ON-CHAIN REGISTRY LOOKUP ==============
+// Encode tokenURI(uint256) call
+function encodeTokenURICall(agentId: number): string {
+  const selector = 'c87b56dd';
+  return `0x${selector}${agentId.toString(16).padStart(64, '0')}`;
+}
+
+// Decode ABI-encoded string return value
+function decodeStringReturn(hex: string): string {
+  const data = hex.startsWith('0x') ? hex.slice(2) : hex;
+  if (data.length < 128) return '';
+  const length = parseInt(data.slice(64, 128), 16);
+  if (length === 0) return '';
+  return Buffer.from(data.slice(128, 128 + length * 2), 'hex').toString('utf8');
+}
+
+// Parse 8004agents.ai URL → { chain, agentId } or null
+function parse8004Url(input: string): { chain: string; agentId: number } | null {
+  const m = /8004agents\.ai\/([^/]+)\/agent\/(\d+)/.exec(input);
+  if (m) return { chain: m[1].toLowerCase(), agentId: parseInt(m[2]) };
+  // Also accept erc8004:{chain}:{agentId} internal encoding
+  const m2 = /^erc8004:([^:]+):(\d+)$/.exec(input);
+  if (m2) return { chain: m2[1], agentId: parseInt(m2[2]) };
+  return null;
+}
+
+// Fetch agent card from ERC-8004 registry on-chain → synthetic identity object
+async function lookupErc8004Registry(chainKey: string, agentId: number): Promise<any | null> {
+  const chain = ERC8004_CHAINS[chainKey] || ERC8004_CHAINS['gnosis'];
+  try {
+    const res = await fetch(chain.rpc, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0', id: 1, method: 'eth_call',
+        params: [{ to: ERC8004_REGISTRY, data: encodeTokenURICall(agentId) }, 'latest'],
+      }),
+      signal: AbortSignal.timeout(8000),
+    });
+    const json = await res.json() as { result?: string };
+    if (!json.result || json.result === '0x') return null;
+
+    const agentURI = decodeStringReturn(json.result);
+    if (!agentURI) return null;
+
+    let card: any = { agentId, chain: chainKey, agentURI, source: 'erc8004-registry' };
+
+    // Inline data URI
+    if (agentURI.startsWith('data:')) {
+      try {
+        const b64 = agentURI.split(',')[1];
+        const parsed = JSON.parse(Buffer.from(b64, 'base64').toString('utf8'));
+        card = { ...card, ...parsed };
+      } catch {}
+      return card;
+    }
+
+    // Remote URI
+    try {
+      const cardRes = await fetch(agentURI, {
+        headers: { Accept: 'application/json' },
+        signal: AbortSignal.timeout(6000),
+      });
+      if (cardRes.ok) {
+        const parsed = await cardRes.json();
+        card = { ...card, ...parsed };
+      }
+    } catch {}
+
+    return card;
+  } catch {
+    return null;
+  }
+}
+
 // ============== IMPLEMENTATIONS ==============
 
 async function analyzeFootprint(agent: string): Promise<AgentFootprint> {
-  // ─── PHASE 1: Try ghostagent.ninja agent-lookup API for full identity graph ───
   let identity: any = null;
   let dataSource: AgentFootprint['dataSource'] = 'none';
   let tbaAddress: string | null = null;
-  
-  try {
+
+  // ─── PHASE 0: ERC-8004 direct registry (8004agents.ai URL, #ID, erc8004:chain:id) ───
+  const erc8004Parsed = parse8004Url(agent);
+  if (erc8004Parsed) {
+    const card = await lookupErc8004Registry(erc8004Parsed.chain, erc8004Parsed.agentId);
+    if (card) {
+      identity = {
+        exists: true,
+        safe: card.safe || card.safeAddress || null,
+        tbaAddress: null,
+        identityNft: null,
+        tld: card.tld || null,
+        links: { agentCard: card.agentURI || null, ...(card.links || {}) },
+        mcpServers: card.mcpServers || card.tools?.map((t: any) => t.url).filter(Boolean) || [],
+        genomeUrl: card.genomeUrl || null,
+        accountTier: card.tier || 'basic',
+        tier: card.tier || 'basic',
+        totalXdaiBurned: 0,
+        surgeReputationScore: 0,
+        erc8004: { [erc8004Parsed.chain]: { agentId: erc8004Parsed.agentId, agentURI: card.agentURI } },
+        email: card.email || null,
+        name: card.name || `agent#${erc8004Parsed.agentId}`,
+      };
+      dataSource = 'erc8004-registry';
+    }
+  }
+
+  // ─── PHASE 1: Try ghostagent.ninja agent-lookup API for full identity graph ───
+  if (!identity) try {
     const lookupRes = await fetch(`${GHOSTAGENT_LOOKUP_URL}?q=${encodeURIComponent(agent)}`, {
       method: 'GET',
       headers: { 'Accept': 'application/json' },
@@ -193,7 +294,7 @@ async function analyzeFootprint(agent: string): Promise<AgentFootprint> {
   }
 
   // ─── PHASE 2: Fallback to worker KV if ghostagent API didn't return data ───
-  if (!identity) {
+  if (!identity && !erc8004Parsed) {
     try {
       const identityRes = await fetch(`${WORKER_URL}`, {
         method: 'POST',
@@ -1084,17 +1185,39 @@ function analyzeCorrelations(events: ReconEvent[]): Array<{ type: string; entiti
 }
 
 async function checkExposure(agent: string): Promise<ExposureReport> {
-  const identityRes = await fetch(`${WORKER_URL}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'getAgentIdentity', agentName: agent }),
-  });
-  
-  if (!identityRes.ok) throw new Error('Agent not found');
-  const identity = await identityRes.json();
-  
+  // Same 3-phase lookup as analyzeFootprint — never throw for unknown agents
+  let identity: any = null;
+
+  const erc8004Parsed = parse8004Url(agent);
+  if (erc8004Parsed) {
+    identity = await lookupErc8004Registry(erc8004Parsed.chain, erc8004Parsed.agentId);
+  }
+
+  if (!identity) {
+    try {
+      const lookupRes = await fetch(`${GHOSTAGENT_LOOKUP_URL}?q=${encodeURIComponent(agent)}`);
+      if (lookupRes.ok) {
+        const d = await lookupRes.json();
+        if (d.exists) identity = d;
+      }
+    } catch {}
+  }
+
+  if (!identity) {
+    try {
+      const workerRes = await fetch(`${WORKER_URL}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'getAgentIdentity', agentName: agent }),
+      });
+      if (workerRes.ok) identity = await workerRes.json();
+    } catch {}
+  }
+
+  if (!identity) identity = { safe: null, mcpServers: [], erc8004: null, genomeUrl: null };
+
   // Extract from actual worker shape
-  const safeAddress = identity.safe || null;
+  const safeAddress = identity.safe || identity.safeAddress || null;
   const tld = identity.identityNft?.tld || null;
   const tldBase = tld ? tld.replace(/\.gno$/, '') : null;
   const KNOWN_TLDS = ['molt', 'nftmail', 'openclaw', 'picoclaw', 'vault', 'agent'];
@@ -1328,81 +1451,56 @@ async function monitorAgent(agent: string, alerts: boolean): Promise<MonitoringR
 }
 
 // ============== AGENT RESOLVER ==============
+// Never throws — unknown agents pass through as-is for graceful handling downstream
 
 async function resolveAgentIdentifier(raw: string, chain?: string): Promise<string> {
   const v = raw.trim();
   if (!v) throw new Error('Empty agent identifier');
-  
-  // Strip leading # and treat as numeric token ID / ERC-8004 ID
+
+  // 8004agents.ai URL → encode as erc8004:{chain}:{id} for downstream resolution
+  if (v.includes('8004agents.ai')) {
+    const parsed = parse8004Url(v);
+    if (parsed) return `erc8004:${parsed.chain}:${parsed.agentId}`;
+  }
+
+  // Strip leading # — numeric = ERC-8004 agentId
   const stripped = v.replace(/^#/, '');
   if (/^\d+$/.test(stripped)) {
-    // Look up agent by ERC-8004 ID
-    const listRes = await fetch(`${WORKER_URL}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'listAgents' }),
-    });
-    if (!listRes.ok) throw new Error('Failed to list agents');
-    const data = await listRes.json();
-    const agents = data.agents || [];
-    
-    // If chain is specified, only search that chain
-    const chainsToCheck = chain ? [chain] : ['gnosis', 'base', 'baseSepolia'];
     const targetId = parseInt(stripped);
-    
-    // listAgents returns objects with inline erc8004 data — check directly
-    for (const agentObj of agents) {
-      const name = typeof agentObj === 'string' ? agentObj : agentObj.name;
-      const erc8004 = typeof agentObj === 'string' ? null : agentObj.erc8004;
-      
-      if (erc8004) {
-        for (const chainToCheck of chainsToCheck) {
-          if (erc8004[chainToCheck]?.agentId === targetId) {
-            return name;
-          }
-        }
-      } else {
-        // Fallback: fetch individual identity
-        const identityRes = await fetch(`${WORKER_URL}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'getAgentIdentity', agentName: name }),
-        });
-        if (!identityRes.ok) continue;
-        const identity = await identityRes.json();
-        for (const chainToCheck of chainsToCheck) {
-          if (identity.erc8004?.[chainToCheck]?.agentId === targetId) {
-            return name;
+    const resolvedChain = chain || 'gnosis';
+
+    // Try worker KV first (fast path for ghostagent.ninja agents)
+    try {
+      const listRes = await fetch(`${WORKER_URL}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'listAgents' }),
+      });
+      if (listRes.ok) {
+        const data = await listRes.json();
+        const chainsToCheck = chain ? [chain] : ['gnosis', 'base', 'baseSepolia'];
+        for (const agentObj of (data.agents || [])) {
+          const name = typeof agentObj === 'string' ? agentObj : agentObj.name;
+          const erc8004 = typeof agentObj === 'string' ? null : agentObj.erc8004;
+          if (erc8004) {
+            for (const c of chainsToCheck) {
+              if (erc8004[c]?.agentId === targetId) return name;
+            }
           }
         }
       }
-    }
-    throw new Error(`No agent found with ERC-8004 ID #${stripped}${chain ? ` on ${chain}` : ''}`);
+    } catch {}
+
+    // Not in worker KV → encode for direct on-chain resolution
+    return `erc8004:${resolvedChain}:${stripped}`;
   }
-  
+
   // Agent email: [name]_@nftmail.box
   if (v.includes('_@nftmail.box')) {
-    const res = await fetch(`${WORKER_URL}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'getAgentIdentity', agentName: v.replace('_@nftmail.box', '') }),
-    });
-    if (!res.ok) throw new Error('Agent email not found');
-    const identity = await res.json();
-    if (identity.email === v || identity.email?.toLowerCase() === v.toLowerCase()) {
-      return v.replace('_@nftmail.box', '');
-    }
-    // Fallback: just return the name part
     return v.replace('_@nftmail.box', '');
   }
-  
-  // Regular agent name - verify it exists
-  const identityRes = await fetch(`${WORKER_URL}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'getAgentIdentity', agentName: v }),
-  });
-  if (!identityRes.ok) throw new Error(`Agent "${v}" not found`);
+
+  // Regular agent name — return as-is; analyzeFootprint handles graceful fallback
   return v;
 }
 
