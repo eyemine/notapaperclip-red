@@ -4,18 +4,34 @@ const GNOSIS_RPC = process.env.NEXT_PUBLIC_GNOSIS_RPC || 'https://rpc.gnosischai
 const GNOSISSCAN_API = 'https://api.gnosisscan.io/api';
 const BASESCAN_API = 'https://api.basescan.org/api';
 const WORKER_URL = process.env.WORKER_URL || 'https://nftmail-email-worker.richard-159.workers.dev';
+const GHOSTAGENT_LOOKUP_URL = 'https://ghostagent.ninja/api/agent-lookup';
+const ERC8004_REGISTRY = '0x8004A169FB4a3325136EB29fA0ceB6D2e539a432';
+
+// ERC-8004 supported chains for universal agent lookup
+const ERC8004_CHAINS: Record<string, { name: string; rpc: string; chainId: number }> = {
+  gnosis: { name: 'Gnosis', rpc: 'https://rpc.gnosischain.com', chainId: 100 },
+  base: { name: 'Base', rpc: 'https://mainnet.base.org', chainId: 8453 },
+  'base-sepolia': { name: 'Base Sepolia', rpc: 'https://sepolia.base.org', chainId: 84532 },
+};
 
 // ============== TYPES ==============
 
 interface AgentFootprint {
   agent: string;
+  dataSource: 'worker-kv' | 'ghostagent-api' | 'erc8004-registry' | 'on-chain' | 'minimal' | 'none';
   onChain: {
     safeAddress: string | null;
     tbaAddress: string | null;
+    tbaDeployed: boolean;
     totalTransactions: number;
     firstSeen: number | null;
     lastSeen: number | null;
     balances: { token: string; amount: string }[];
+    erc8004Registrations: Array<{
+      chain: string;
+      agentId: number;
+      agentURI: string | null;
+    }>;
   };
   offChain: {
     tld: string;
@@ -25,6 +41,8 @@ interface AgentFootprint {
     mcpServers: string[];
     genomeUrl: string | null;
     hasX402Capability: boolean;
+    emailAddress: string | null;
+    agentCardUrl: string | null;
   };
   exposure: {
     hasPublicEndpoints: boolean;
@@ -87,6 +105,12 @@ interface CrossPlatformIdentity {
 interface ReconReport {
   target: string;
   modules: Record<string, any>;
+  meta?: {
+    totalEvents: number;
+    dataSource: string;
+    coverage: string[];
+    correlations: Array<{ type: string; entities: string[]; confidence: number }>;
+  };
   timestamp: number;
 }
 
@@ -146,33 +170,86 @@ interface MonitoringReport {
 // ============== IMPLEMENTATIONS ==============
 
 async function analyzeFootprint(agent: string): Promise<AgentFootprint> {
-  const identityRes = await fetch(`${WORKER_URL}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'getAgentIdentity', agentName: agent }),
-  });
+  // ─── PHASE 1: Try ghostagent.ninja agent-lookup API for full identity graph ───
+  let identity: any = null;
+  let dataSource: AgentFootprint['dataSource'] = 'none';
+  let tbaAddress: string | null = null;
   
-  if (!identityRes.ok) throw new Error('Agent not found');
-  const identity = await identityRes.json();
-  
-  // Extract fields from actual worker response shape
-  const safeAddress = identity.safe || null;
-  const tld = identity.identityNft?.tld || null;
-  const tldBase = tld ? tld.replace(/\.gno$/, '') : null; // 'molt.gno' → 'molt'
-  const ownerWallet = identity.identityNft?.owner || null;
-  const agentCardUrl = identity.links?.agentCard || null;
-  const mcpServers: string[] = identity.mcpServers || [];
-  const genomeUrl = identity.genomeUrl || identity.links?.genome || null;
-  
+  try {
+    const lookupRes = await fetch(`${GHOSTAGENT_LOOKUP_URL}?q=${encodeURIComponent(agent)}`, {
+      method: 'GET',
+      headers: { 'Accept': 'application/json' },
+    });
+    if (lookupRes.ok) {
+      const lookupData = await lookupRes.json();
+      if (lookupData.exists) {
+        identity = lookupData;
+        dataSource = 'ghostagent-api';
+        tbaAddress = lookupData.tbaAddress || null;
+      }
+    }
+  } catch (e) {
+    console.log('ghostagent.ninja lookup failed, falling back to worker KV');
+  }
+
+  // ─── PHASE 2: Fallback to worker KV if ghostagent API didn't return data ───
+  if (!identity) {
+    try {
+      const identityRes = await fetch(`${WORKER_URL}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'getAgentIdentity', agentName: agent }),
+      });
+      if (identityRes.ok) {
+        identity = await identityRes.json();
+        dataSource = 'worker-kv';
+      }
+    } catch (e) {
+      console.log('Worker KV lookup failed');
+    }
+  }
+
+  // ─── PHASE 3: Minimal identity for agents with no blockchain data ───
+  if (!identity) {
+    dataSource = 'minimal';
+    identity = {
+      exists: false,
+      safe: null,
+      identityNft: null,
+      links: {},
+      mcpServers: [],
+      genomeUrl: null,
+      accountTier: 'unknown',
+      tier: 'unknown',
+      totalXdaiBurned: 0,
+      surgeReputationScore: 0,
+      erc8004: null,
+      email: null,
+    };
+  }
+
+  // Extract fields from identity (works for both ghostagent-api and worker-kv)
+  const safeAddress = identity?.safe || identity?.safeAddress || null;
+  const tld = identity?.identityNft?.tld || identity?.tld || null;
+  const tldBase = tld ? tld.replace(/\.gno$/, '') : null;
+  const agentCardUrl = identity?.links?.agentCard || identity?.agentCardUrl || null;
+  const mcpServers: string[] = identity?.mcpServers || [];
+  const genomeUrl = identity?.genomeUrl || identity?.links?.genome || null;
+  const emailAddress = identity?.email || identity?.emailAddress || null;
+
+  // ─── PHASE 4: Gather on-chain data ───
   let onChainData = {
     safeAddress,
-    tbaAddress: null as string | null,
+    tbaAddress,
+    tbaDeployed: false,
     totalTransactions: 0,
     firstSeen: null as number | null,
     lastSeen: null as number | null,
     balances: [] as { token: string; amount: string }[],
+    erc8004Registrations: [] as AgentFootprint['onChain']['erc8004Registrations'],
   };
-  
+
+  // Safe balance and transaction history
   if (safeAddress) {
     try {
       const [balanceRes, txRes] = await Promise.all([
@@ -207,27 +284,61 @@ async function analyzeFootprint(agent: string): Promise<AgentFootprint> {
       console.error('Error fetching on-chain data:', error);
     }
   }
-  
-  // x402 capability — all ghostagent.ninja agents with known TLDs have built-in x402 readiness
+
+  // ERC-8004 registrations from identity
+  if (identity?.erc8004) {
+    Object.entries(identity.erc8004).forEach(([chain, data]: [string, any]) => {
+      if (data?.agentId) {
+        onChainData.erc8004Registrations.push({
+          chain,
+          agentId: data.agentId,
+          agentURI: data.agentURI || null,
+        });
+      }
+    });
+  }
+
+  // Check if TBA is deployed (has code)
+  if (tbaAddress) {
+    try {
+      const codeRes = await fetch(GNOSIS_RPC, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 2,
+          method: 'eth_getCode',
+          params: [tbaAddress, 'latest'],
+        }),
+      });
+      const codeData = await codeRes.json();
+      onChainData.tbaDeployed = !!(codeData.result && codeData.result !== '0x');
+    } catch {}
+  }
+
+  // ─── PHASE 5: Exposure & risk assessment ───
   const KNOWN_TLDS = ['molt', 'nftmail', 'openclaw', 'picoclaw', 'vault', 'agent'];
   const hasX402Capability = !!(tldBase && KNOWN_TLDS.includes(tldBase));
-  
   const hasPublicEndpoints = mcpServers.length > 0;
-  let riskLevel: 'low' | 'medium' | 'high' = 'low';
-  if (!safeAddress) riskLevel = 'high';
-  else if (onChainData.balances.length === 0 || parseFloat(onChainData.balances[0]?.amount || '0') < 1) riskLevel = 'medium';
   
+  let riskLevel: 'low' | 'medium' | 'high' = 'low';
+  if (!safeAddress && !tbaAddress) riskLevel = 'high';
+  else if (onChainData.balances.length === 0 || parseFloat(onChainData.balances[0]?.amount || '0') < 1) riskLevel = 'medium';
+
   return {
     agent,
+    dataSource,
     onChain: onChainData,
     offChain: {
       tld: tld || 'unknown',
-      tier: identity.accountTier || identity.tier || 'basic',
-      totalXdaiBurned: identity.totalXdaiBurned || 0,
-      surgeScore: identity.surgeReputationScore || 0,
+      tier: identity?.accountTier || identity?.tier || 'unknown',
+      totalXdaiBurned: identity?.totalXdaiBurned || 0,
+      surgeScore: identity?.surgeReputationScore || 0,
       mcpServers,
       genomeUrl,
       hasX402Capability,
+      emailAddress,
+      agentCardUrl,
     },
     exposure: {
       hasPublicEndpoints,
@@ -239,56 +350,255 @@ async function analyzeFootprint(agent: string): Promise<AgentFootprint> {
   };
 }
 
-async function mapRelations(agent: string): Promise<AgentRelations> {
-  // Note: worker does not have a 'listHandshakes' action.
-  // Use getAgentIdentity to extract what relation data we can.
-  const identityRes = await fetch(`${WORKER_URL}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'getAgentIdentity', agentName: agent }),
-  });
-  
-  let sharedSafes: string[] = [];
-  let erc8004Chains: string[] = [];
-  
-  if (identityRes.ok) {
-    const identity = await identityRes.json();
-    if (identity.safe) sharedSafes.push(identity.safe);
-    // Count chain registrations as network connections
-    if (identity.erc8004) {
-      erc8004Chains = Object.keys(identity.erc8004);
-    }
-  }
-  
-  // List all agents and check for shared Safes as a proxy for relations
-  const listRes = await fetch(`${WORKER_URL}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'listAgents' }),
-  });
-  
-  const handshakes: AgentRelations['handshakes'] = [];
-  if (listRes.ok) {
+// ============== MALTEGO-STYLE TRANSFORM GRAPH ==============
+// Each transform takes an entity type and discovers related entities
+// Transforms compose: Agent → Safe → Agents → TBAs → NFTs → ...
+
+type EntityType = 'agent' | 'safe' | 'tba' | 'nft' | 'mcp' | 'contract' | 'wallet';
+
+interface GraphEntity {
+  id: string;
+  type: EntityType;
+  label: string;
+  data?: any;
+}
+
+interface GraphRelation {
+  source: string;
+  target: string;
+  type: string;
+  properties?: Record<string, any>;
+}
+
+// Transform 1: Agent → Safe (from identity data)
+async function transformAgentToSafe(agentName: string, identity: any): Promise<GraphEntity | null> {
+  const safe = identity?.safe || identity?.safeAddress;
+  if (!safe) return null;
+  return { id: safe, type: 'safe', label: `Safe ${safe.slice(0, 8)}...`, data: { address: safe } };
+}
+
+// Transform 2: Safe → All Agents (query all agents, filter by shared Safe)
+async function transformSafeToAgents(safeAddress: string, excludeAgent: string): Promise<GraphEntity[]> {
+  const agents: GraphEntity[] = [];
+  try {
+    const listRes = await fetch(`${WORKER_URL}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'listAgents' }),
+    });
+    if (!listRes.ok) return agents;
+    
     const data = await listRes.json();
-    const agents = data.agents || [];
-    for (const a of agents) {
+    const allAgents = data.agents || [];
+    
+    // Check each agent for shared Safe
+    await Promise.all(allAgents.map(async (a: any) => {
       const peerName = typeof a === 'string' ? a : a.name;
-      if (peerName === agent) continue;
-      // Fetch peer identity to check for shared Safe
+      if (peerName === excludeAgent) return;
+      
       const peerRes = await fetch(`${WORKER_URL}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'getAgentIdentity', agentName: peerName }),
       });
-      if (!peerRes.ok) continue;
+      if (!peerRes.ok) return;
+      
       const peer = await peerRes.json();
-      if (peer.safe && sharedSafes.includes(peer.safe)) {
-        handshakes.push({ peer: peerName, status: 'shared-safe', timestamp: Date.now() });
+      if (peer.safe?.toLowerCase() === safeAddress.toLowerCase()) {
+        agents.push({
+          id: peerName,
+          type: 'agent',
+          label: peerName,
+          data: { safe: peer.safe, tier: peer.accountTier },
+        });
+      }
+    }));
+  } catch {}
+  return agents;
+}
+
+// Transform 3: Agent → TBA (from ghostagent.ninja API)
+async function transformAgentToTBA(agentName: string): Promise<GraphEntity | null> {
+  try {
+    const lookupRes = await fetch(`${GHOSTAGENT_LOOKUP_URL}?q=${encodeURIComponent(agentName)}`);
+    if (!lookupRes.ok) return null;
+    const data = await lookupRes.json();
+    if (data.tbaAddress) {
+      return {
+        id: data.tbaAddress,
+        type: 'tba',
+        label: `TBA ${data.tbaAddress.slice(0, 8)}...`,
+        data: { address: data.tbaAddress, deployed: data.tbaDeployed },
+      };
+    }
+  } catch {}
+  return null;
+}
+
+// Transform 4: TBA → NFT (owner of the NFT that owns the TBA)
+async function transformTBAToNFT(tbaAddress: string, tokenContract?: string, tokenId?: number): Promise<GraphEntity | null> {
+  if (!tokenContract || !tokenId) return null;
+  return {
+    id: `${tokenContract}:${tokenId}`,
+    type: 'nft',
+    label: `NFT #${tokenId}`,
+    data: { contract: tokenContract, tokenId },
+  };
+}
+
+// Transform 5: Agent → MCP Servers (from identity)
+async function transformAgentToMCPs(agentName: string, identity: any): Promise<GraphEntity[]> {
+  const mcpServers: string[] = identity?.mcpServers || [];
+  return mcpServers.map((url: string) => ({
+    id: url,
+    type: 'mcp',
+    label: new URL(url).hostname,
+    data: { endpoint: url },
+  }));
+}
+
+// Transform 6: Safe → On-chain Contracts (from tx history)
+async function transformSafeToContracts(safeAddress: string): Promise<GraphEntity[]> {
+  const contracts: GraphEntity[] = [];
+  try {
+    const txRes = await fetch(
+      `${GNOSISSCAN_API}?module=account&action=txlist&address=${safeAddress}&startblock=0&endblock=99999999&sort=desc&apikey=YourApiKeyToken`
+    );
+    const txData = await txRes.json();
+    if (txData.status === '1' && Array.isArray(txData.result)) {
+      // Count interactions per contract
+      const contractCounts: Record<string, number> = {};
+      txData.result.slice(0, 100).forEach((tx: any) => {
+        const to = tx.to?.toLowerCase();
+        if (to && to !== safeAddress.toLowerCase()) {
+          contractCounts[to] = (contractCounts[to] || 0) + 1;
+        }
+      });
+      
+      // Top 10 contracts by interaction count
+      Object.entries(contractCounts)
+        .sort(([, a], [, b]) => b - a)
+        .slice(0, 10)
+        .forEach(([address, count]) => {
+          contracts.push({
+            id: address,
+            type: 'contract',
+            label: `Contract ${address.slice(0, 8)}...`,
+            data: { address, interactions: count },
+          });
+        });
+    }
+  } catch {}
+  return contracts;
+}
+
+// Main Maltego-style graph builder
+async function buildTransformGraph(agent: string, depth: number = 2): Promise<{ entities: GraphEntity[]; relations: GraphRelation[] }> {
+  const entities: GraphEntity[] = [{ id: agent, type: 'agent', label: agent }];
+  const relations: GraphRelation[] = [];
+  const visited = new Set<string>([agent]);
+  
+  // Get base identity
+  let identity: any = null;
+  try {
+    const lookupRes = await fetch(`${GHOSTAGENT_LOOKUP_URL}?q=${encodeURIComponent(agent)}`);
+    if (lookupRes.ok) identity = await lookupRes.json();
+  } catch {
+    try {
+      const workerRes = await fetch(`${WORKER_URL}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'getAgentIdentity', agentName: agent }),
+      });
+      if (workerRes.ok) identity = await workerRes.json();
+    } catch {}
+  }
+  
+  if (!identity) return { entities, relations };
+  
+  // Layer 1: Direct connections from agent
+  const safe = await transformAgentToSafe(agent, identity);
+  if (safe) {
+    entities.push(safe);
+    relations.push({ source: agent, target: safe.id, type: 'owns', properties: { relation: 'agent-safe' } });
+    
+    if (depth > 1) {
+      // Layer 2: Safe → other agents
+      const coAgents = await transformSafeToAgents(safe.data.address, agent);
+      coAgents.forEach(coAgent => {
+        if (!visited.has(coAgent.id)) {
+          visited.add(coAgent.id);
+          entities.push(coAgent);
+          relations.push({ source: safe.id, target: coAgent.id, type: 'shared', properties: { relation: 'safe-sharing' } });
+        }
+      });
+      
+      // Layer 2: Safe → contracts
+      const contracts = await transformSafeToContracts(safe.data.address);
+      contracts.forEach(contract => {
+        if (!visited.has(contract.id)) {
+          visited.add(contract.id);
+          entities.push(contract);
+          relations.push({ source: safe.id, target: contract.id, type: 'interacts', properties: { count: contract.data.interactions } });
+        }
+      });
+    }
+  }
+  
+  // Layer 1: Agent → TBA
+  const tba = await transformAgentToTBA(agent);
+  if (tba) {
+    entities.push(tba);
+    relations.push({ source: agent, target: tba.id, type: 'bound', properties: { relation: 'erc6551-tba' } });
+    
+    // Layer 2: TBA → NFT (if we have originNft data)
+    const originNft = identity?.originNft;
+    if (originNft && identity?.mintedTokenId) {
+      // Parse originNft like "ghostagent.molt.gno" to extract registrar
+      const nft = await transformTBAToNFT(tba.id, identity.onChainOwner, identity.mintedTokenId);
+      if (nft && !visited.has(nft.id)) {
+        visited.add(nft.id);
+        entities.push(nft);
+        relations.push({ source: tba.id, target: nft.id, type: 'owns', properties: { relation: 'tba-nft' } });
       }
     }
   }
   
-  const networkSize = handshakes.length + erc8004Chains.length;
+  // Layer 1: Agent → MCPs
+  const mcps = await transformAgentToMCPs(agent, identity);
+  mcps.forEach(mcp => {
+    if (!visited.has(mcp.id)) {
+      visited.add(mcp.id);
+      entities.push(mcp);
+      relations.push({ source: agent, target: mcp.id, type: 'exposes', properties: { relation: 'mcp-server' } });
+    }
+  });
+  
+  return { entities, relations };
+}
+
+async function mapRelations(agent: string): Promise<AgentRelations & { graph: { entities: GraphEntity[]; relations: GraphRelation[] } }> {
+  // Build Maltego-style transform graph
+  const { entities, relations } = await buildTransformGraph(agent, 2);
+  
+  // Calculate traditional metrics from graph
+  const sharedSafes = entities
+    .filter(e => e.type === 'safe')
+    .map(e => e.data?.address)
+    .filter(Boolean);
+  
+  const handshakes: AgentRelations['handshakes'] = relations
+    .filter(r => r.type === 'shared')
+    .map(r => ({
+      peer: r.target,
+      status: 'shared-safe',
+      timestamp: Date.now(),
+    }));
+  
+  const networkSize = entities.filter(e => e.type === 'agent').length - 1 + // other agents
+                     entities.filter(e => e.type === 'contract').length + // contracts
+                     entities.filter(e => e.type === 'mcp').length; // MCPs
+  
   const centrality = Math.min(networkSize / 10, 1);
   
   return {
@@ -297,6 +607,7 @@ async function mapRelations(agent: string): Promise<AgentRelations> {
     sharedSafes,
     networkSize,
     centrality,
+    graph: { entities, relations },
   };
 }
 
@@ -431,45 +742,345 @@ async function correlateIdentity(handle: string, platforms: string[]): Promise<C
   };
 }
 
-async function runRecon(target: string, modules: string[]): Promise<ReconReport> {
-  const results: Record<string, any> = {};
-  
-  if (modules.includes('basic') || modules.includes('dns')) {
-    results.dns = {
-      mcpEndpoints: [],
-      ipfsGateways: ['https://gateway.lighthouse.storage/ipfs/'],
-    };
-  }
-  
-  if (modules.includes('basic') || modules.includes('crypto')) {
-    const identityRes = await fetch(`${WORKER_URL}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'getAgentIdentity', agentName: target }),
+// ============== SPIDERFOOT-STYLE MODULAR RECON ==============
+// Independent modules run in parallel, each producing "events"
+// Modules can emit events that trigger other modules (event-driven pipeline)
+
+type ReconEventType = 'agent' | 'dns' | 'crypto' | 'contract' | 'social' | 'blockchain' | 'whois';
+
+interface ReconEvent {
+  type: ReconEventType;
+  source: string; // module that produced this event
+  data: any;
+  confidence: number; // 0-100
+  timestamp: number;
+}
+
+interface ReconModule {
+  name: string;
+  description: string;
+  run: (target: string, identity: any) => Promise<ReconEvent[]>;
+}
+
+// Module 1: DNS/Domain recon
+const dnsModule: ReconModule = {
+  name: 'dns',
+  description: 'Resolve agent domains and MCP endpoints',
+  async run(target, identity) {
+    const events: ReconEvent[] = [];
+    const tld = identity?.tld || identity?.identityNft?.tld;
+    
+    if (tld) {
+      events.push({
+        type: 'dns',
+        source: 'dns',
+        data: { domain: `${target}.${tld}`, resolved: true },
+        confidence: 100,
+        timestamp: Date.now(),
+      });
+    }
+    
+    // Check MCP endpoints
+    const mcps = identity?.mcpServers || [];
+    mcps.forEach((url: string) => {
+      try {
+        const hostname = new URL(url).hostname;
+        events.push({
+          type: 'dns',
+          source: 'dns',
+          data: { endpoint: url, hostname, type: 'mcp-server' },
+          confidence: 95,
+          timestamp: Date.now(),
+        });
+      } catch {}
     });
     
-    if (identityRes.ok) {
-      const identity = await identityRes.json();
-      results.crypto = {
-        safeAddress: identity.safe,
-        tbaAddress: null,
-        nfts: identity.identityNft ? [identity.identityNft] : [],
-      };
+    return events;
+  },
+};
+
+// Module 2: Crypto/Blockchain recon
+const cryptoModule: ReconModule = {
+  name: 'crypto',
+  description: 'Analyze on-chain addresses and transactions',
+  async run(target, identity) {
+    const events: ReconEvent[] = [];
+    const safe = identity?.safe || identity?.safeAddress;
+    const tba = identity?.tbaAddress;
+    
+    if (safe) {
+      events.push({
+        type: 'crypto',
+        source: 'crypto',
+        data: { type: 'safe', address: safe, chain: 'gnosis' },
+        confidence: 100,
+        timestamp: Date.now(),
+      });
+      
+      // Fetch transaction count
+      try {
+        const txRes = await fetch(
+          `${GNOSISSCAN_API}?module=account&action=txlist&address=${safe}&startblock=0&endblock=99999999&sort=asc&apikey=YourApiKeyToken`
+        );
+        const txData = await txRes.json();
+        if (txData.status === '1' && Array.isArray(txData.result)) {
+          events.push({
+            type: 'blockchain',
+            source: 'crypto',
+            data: { 
+              address: safe, 
+              txCount: txData.result.length,
+              firstSeen: txData.result[0]?.timeStamp,
+              lastSeen: txData.result[txData.result.length - 1]?.timeStamp,
+            },
+            confidence: 100,
+            timestamp: Date.now(),
+          });
+          
+          // Extract unique contract interactions
+          const contracts = new Set<string>();
+          txData.result.forEach((tx: any) => {
+            if (tx.to && tx.to.toLowerCase() !== safe.toLowerCase()) {
+              contracts.add(tx.to);
+            }
+          });
+          
+          events.push({
+            type: 'contract',
+            source: 'crypto',
+            data: { 
+              type: 'contract-interactions', 
+              count: contracts.size,
+              addresses: Array.from(contracts).slice(0, 20),
+            },
+            confidence: 90,
+            timestamp: Date.now(),
+          });
+        }
+      } catch {}
     }
+    
+    if (tba) {
+      events.push({
+        type: 'crypto',
+        source: 'crypto',
+        data: { type: 'tba', address: tba, standard: 'erc6551' },
+        confidence: 100,
+        timestamp: Date.now(),
+      });
+    }
+    
+    // ERC-8004 registrations
+    if (identity?.erc8004) {
+      Object.entries(identity.erc8004).forEach(([chain, data]: [string, any]) => {
+        if (data?.agentId) {
+          events.push({
+            type: 'crypto',
+            source: 'crypto',
+            data: { type: 'erc8004', chain, agentId: data.agentId },
+            confidence: 100,
+            timestamp: Date.now(),
+          });
+        }
+      });
+    }
+    
+    return events;
+  },
+};
+
+// Module 3: Social/Identity correlation
+const socialModule: ReconModule = {
+  name: 'social',
+  description: 'Correlate agent identity across platforms',
+  async run(target, identity) {
+    const events: ReconEvent[] = [];
+    
+    // Email address
+    if (identity?.email || identity?.emailAddress) {
+      events.push({
+        type: 'social',
+        source: 'social',
+        data: { platform: 'nftmail', handle: identity.email || identity.emailAddress },
+        confidence: 100,
+        timestamp: Date.now(),
+      });
+    }
+    
+    // Owner wallet
+    if (identity?.onChainOwner || identity?.identityNft?.owner) {
+      events.push({
+        type: 'social',
+        source: 'social',
+        data: { platform: 'wallet', address: identity.onChainOwner || identity.identityNft?.owner },
+        confidence: 100,
+        timestamp: Date.now(),
+      });
+    }
+    
+    // Agent card / A2A
+    if (identity?.links?.agentCard || identity?.agentCardUrl) {
+      events.push({
+        type: 'social',
+        source: 'social',
+        data: { platform: 'a2a-protocol', card: identity.links?.agentCard || identity.agentCardUrl },
+        confidence: 95,
+        timestamp: Date.now(),
+      });
+    }
+    
+    return events;
+  },
+};
+
+// Module 4: Whois-style metadata recon
+const whoisModule: ReconModule = {
+  name: 'whois',
+  description: 'Extract registration and metadata information',
+  async run(target, identity) {
+    const events: ReconEvent[] = [];
+    
+    if (identity?.originNft) {
+      events.push({
+        type: 'whois',
+        source: 'whois',
+        data: { 
+          originNft: identity.originNft,
+          tokenId: identity.mintedTokenId,
+          owner: identity.onChainOwner,
+          tier: identity.accountTier || identity.tier,
+        },
+        confidence: 100,
+        timestamp: Date.now(),
+      });
+    }
+    
+    if (identity?.mintedAt || identity?.createdAt) {
+      events.push({
+        type: 'whois',
+        source: 'whois',
+        data: { registeredAt: identity.mintedAt || identity.createdAt },
+        confidence: 90,
+        timestamp: Date.now(),
+      });
+    }
+    
+    return events;
+  },
+};
+
+// Main recon runner — runs all modules in parallel
+async function runRecon(target: string, requestedModules: string[]): Promise<ReconReport> {
+  const allModules = [dnsModule, cryptoModule, socialModule, whoisModule];
+  const enabledModules = requestedModules.includes('all')
+    ? allModules
+    : allModules.filter(m => requestedModules.includes(m.name) || requestedModules.includes('basic'));
+  
+  // Fetch identity once for all modules
+  let identity: any = null;
+  try {
+    const lookupRes = await fetch(`${GHOSTAGENT_LOOKUP_URL}?q=${encodeURIComponent(target)}`);
+    if (lookupRes.ok) {
+      const data = await lookupRes.json();
+      if (data.exists) identity = data;
+    }
+  } catch {}
+  
+  if (!identity) {
+    try {
+      const workerRes = await fetch(`${WORKER_URL}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'getAgentIdentity', agentName: target }),
+      });
+      if (workerRes.ok) identity = await workerRes.json();
+    } catch {}
   }
   
-  if (modules.includes('basic') || modules.includes('blockchain')) {
-    results.blockchain = {
-      chains: ['gnosis', 'base', 'base-sepolia'],
-      erc8004Registered: true,
-    };
-  }
+  // Run all enabled modules in parallel
+  const moduleResults = await Promise.all(
+    enabledModules.map(async (mod) => {
+      try {
+        const events = await mod.run(target, identity || {});
+        return { name: mod.name, events, error: null };
+      } catch (error: any) {
+        return { name: mod.name, events: [], error: error.message };
+      }
+    })
+  );
+  
+  // Aggregate results
+  const allEvents: ReconEvent[] = [];
+  const results: Record<string, any> = {};
+  
+  moduleResults.forEach(({ name, events, error }) => {
+    if (error) {
+      results[name] = { error, status: 'failed' };
+    } else {
+      results[name] = { 
+        eventsFound: events.length,
+        status: 'completed',
+        data: events.map(e => ({ type: e.type, confidence: e.confidence, data: e.data })),
+      };
+      allEvents.push(...events);
+    }
+  });
+  
+  // Cross-correlation analysis
+  const correlations = analyzeCorrelations(allEvents);
   
   return {
     target,
     modules: results,
+    meta: {
+      totalEvents: allEvents.length,
+      dataSource: identity ? (identity.tbaAddress ? 'ghostagent-api' : 'worker-kv') : 'none',
+      coverage: enabledModules.map(m => m.name),
+      correlations,
+    },
     timestamp: Date.now(),
   };
+}
+
+// Analyze correlations between events (SpiderFoot-style)
+function analyzeCorrelations(events: ReconEvent[]): Array<{ type: string; entities: string[]; confidence: number }> {
+  const correlations: Array<{ type: string; entities: string[]; confidence: number }> = [];
+  
+  // Find linked addresses (Safe ↔ TBA)
+  const safes = events.filter(e => e.type === 'crypto' && e.data?.type === 'safe').map(e => e.data.address);
+  const tbas = events.filter(e => e.type === 'crypto' && e.data?.type === 'tba').map(e => e.data.address);
+  
+  if (safes.length > 0 && tbas.length > 0) {
+    correlations.push({
+      type: 'safe-tba-link',
+      entities: [...safes, ...tbas],
+      confidence: 95,
+    });
+  }
+  
+  // Find multi-chain registrations
+  const erc8004Chains = events.filter(e => e.type === 'crypto' && e.data?.type === 'erc8004');
+  if (erc8004Chains.length > 1) {
+    correlations.push({
+      type: 'multi-chain-identity',
+      entities: erc8004Chains.map(e => `${e.data.chain}:${e.data.agentId}`),
+      confidence: 100,
+    });
+  }
+  
+  // Find exposed endpoints with on-chain activity
+  const endpoints = events.filter(e => e.type === 'dns' && e.data?.type === 'mcp-server');
+  const txActivity = events.filter(e => e.type === 'blockchain' && e.data?.txCount > 0);
+  
+  if (endpoints.length > 0 && txActivity.length > 0) {
+    correlations.push({
+      type: 'active-exposed-agent',
+      entities: endpoints.map(e => e.data.hostname),
+      confidence: 85,
+    });
+  }
+  
+  return correlations;
 }
 
 async function checkExposure(agent: string): Promise<ExposureReport> {
