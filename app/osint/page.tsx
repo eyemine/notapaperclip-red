@@ -7,6 +7,7 @@ const CHAINS = [
   { key: 'gnosis',      label: 'Gnosis',       chainId: 100,   explorer: 'https://gnosisscan.io/tx/' },
   { key: 'base',        label: 'Base',         chainId: 8453,  explorer: 'https://basescan.org/tx/' },
   { key: 'baseSepolia', label: 'Base Sepolia', chainId: 84532, explorer: 'https://sepolia.basescan.org/tx/' },
+  { key: 'ethereum',    label: 'Ethereum',     chainId: 1,     explorer: 'https://etherscan.io/tx/' },
 ];
 
 type LookupMode = 'agent' | 'token' | 'email';
@@ -145,8 +146,21 @@ function OSINTDashboardContent() {
     const urlAgent = searchParams.get('agent');
     const urlChain = searchParams.get('chain');
     
-    if (urlMode) setMode(urlMode);
-    if (urlChain) setChain(urlChain);
+    if (urlMode && ['agent', 'token', 'email'].includes(urlMode)) {
+      setMode(urlMode);
+    }
+    
+    if (urlChain) {
+      // Validate chain exists in CHAINS array
+      const validChain = CHAINS.find(c => c.key === urlChain);
+      if (validChain) {
+        setChain(urlChain);
+      } else {
+        // Fallback to gnosis for unknown chains
+        setChain('gnosis');
+      }
+    }
+    
     if (urlAgent) {
       setAgentName(urlAgent);
       // Auto-trigger search if we have URL parameters
