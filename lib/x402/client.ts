@@ -161,9 +161,8 @@ export async function probeAgentX402(agent: string, endpoints?: string[]): Promi
     agentCardUrl = identity.links?.agentCard || null;
   }
   
-  // Always include the x402 gateway endpoint for this agent
-  const gatewayUrl = `${SITE_ORIGIN}/api/x402/gateway?agent=${encodeURIComponent(agent)}`;
-  mcpEndpoints = [gatewayUrl, ...mcpEndpoints];
+  // Only probe actual agent-owned endpoints from their agent card / MCP servers
+  // notapaperclip.red gateway is an analysis proxy, not the agent's own payment endpoint
   
   // Probe all endpoints
   const endpointResults = await Promise.all(

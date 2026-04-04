@@ -39,7 +39,7 @@ interface AgentFootprint {
     totalXdaiBurned: number;
     surgeScore: number;
     mcpServers: string[];
-    genomeUrl: string | null;
+    gnsName: string | null;
     hasX402Capability: boolean;
     emailAddress: string | null;
     agentCardUrl: string | null;
@@ -47,7 +47,7 @@ interface AgentFootprint {
   exposure: {
     hasPublicEndpoints: boolean;
     hasMCPServers: boolean;
-    hasGenomeMetadata: boolean;
+    hasGNSName: boolean;
     hasX402Capability: boolean;
     riskLevel: 'low' | 'medium' | 'high';
   };
@@ -275,22 +275,26 @@ async function analyzeFootprint(agent: string): Promise<AgentFootprint> {
     }
   }
 
-  // ─── PHASE 1: Try ghostagent.ninja agent-lookup API for full identity graph ───
-  if (!identity) try {
+  // ─── PHASE 1: ghostagent.ninja agent-lookup — always try for TBA even if Phase 0 set identity ───
+  try {
     const lookupRes = await fetch(`${GHOSTAGENT_LOOKUP_URL}?q=${encodeURIComponent(agent)}`, {
       method: 'GET',
       headers: { 'Accept': 'application/json' },
+      signal: AbortSignal.timeout(6000),
     });
     if (lookupRes.ok) {
       const lookupData = await lookupRes.json();
       if (lookupData.exists) {
-        identity = lookupData;
-        dataSource = 'ghostagent-api';
-        tbaAddress = lookupData.tbaAddress || null;
+        if (!identity) {
+          identity = lookupData;
+          dataSource = 'ghostagent-api';
+        }
+        // Always take TBA from ghostagent API — it does on-chain derivation
+        tbaAddress = lookupData.tbaAddress || tbaAddress;
       }
     }
-  } catch (e) {
-    console.log('ghostagent.ninja lookup failed, falling back to worker KV');
+  } catch {
+    // non-fatal
   }
 
   // ─── PHASE 2: Fallback to worker KV if ghostagent API didn't return data ───
@@ -335,7 +339,10 @@ async function analyzeFootprint(agent: string): Promise<AgentFootprint> {
   const tldBase = tld ? tld.replace(/\.gno$/, '') : null;
   const agentCardUrl = identity?.links?.agentCard || identity?.agentCardUrl || null;
   const mcpServers: string[] = identity?.mcpServers || [];
-  const genomeUrl = identity?.genomeUrl || identity?.links?.genome || null;
+  // GNS name = the registered .gno name (e.g. ghostagent.molt.gno)
+  // The tld field IS the GNS record — genome in Gnosis ecosystem = GNS identity
+  const gnsName = tld ? `${typeof agent === 'string' && !agent.startsWith('erc8004:') ? agent : (identity?.name || 'agent')}.${tld}` : null;
+  const genomeUrl = identity?.genomeUrl || identity?.links?.genome || null; // kept for compat
   const emailAddress = identity?.email || identity?.emailAddress || null;
 
   // ─── PHASE 4: Gather on-chain data ───
@@ -436,7 +443,7 @@ async function analyzeFootprint(agent: string): Promise<AgentFootprint> {
       totalXdaiBurned: identity?.totalXdaiBurned || 0,
       surgeScore: identity?.surgeReputationScore || 0,
       mcpServers,
-      genomeUrl,
+      gnsName,
       hasX402Capability,
       emailAddress,
       agentCardUrl,
@@ -444,7 +451,7 @@ async function analyzeFootprint(agent: string): Promise<AgentFootprint> {
     exposure: {
       hasPublicEndpoints,
       hasMCPServers: hasPublicEndpoints,
-      hasGenomeMetadata: !!genomeUrl,
+      hasGNSName: !!tld,
       hasX402Capability,
       riskLevel,
     },
@@ -1259,13 +1266,13 @@ async function checkExposure(agent: string): Promise<ExposureReport> {
   if (!identity.genomeUrl && !identity.links?.genome) {
     if (!hasX402) {
       // Only flag as exposure if NOT a known ghostagent TLD (they have built-in capabilities)
-      exposures.push({ type: 'no-genome', severity: 'low', description: 'Agent has no genome metadata URL' });
+      exposures.push({ type: 'no-gns-name', severity: 'low', description: 'Agent has no GNS (.gno) registered name' });
       score -= 10;
     }
   }
   
   if ((identity.mcpServers || []).length > 0) {
-    exposures.push({ type: 'public-endpoints', severity: 'low', description: `Agent has ${identity.mcpServers.length} public MCP endpoints` });
+    exposures.push({ type: 'public-mcp', severity: 'low', description: `${identity.mcpServers.length} public MCP endpoint(s) exposed` });
     score -= 5;
   }
   

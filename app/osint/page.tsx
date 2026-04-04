@@ -23,16 +23,15 @@ interface FootprintData {
   offChain: {
     tld: string;
     tier: string;
-    totalXdaiBurned: number;
     surgeScore: number;
     mcpServers: string[];
-    genomeUrl: string | null;
+    gnsName: string | null;
     hasX402Capability: boolean;
   };
   exposure: {
     hasPublicEndpoints: boolean;
     hasMCPServers: boolean;
-    hasGenomeMetadata: boolean;
+    hasGNSName: boolean;
     hasX402Capability: boolean;
     riskLevel: 'low' | 'medium' | 'high';
   };
@@ -328,12 +327,10 @@ export default function OSINTDashboard() {
                         <span style={{ color: 'var(--text)', textTransform: 'capitalize' }}>{footprint.offChain.tier}</span>
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <span style={{ color: 'var(--muted)' }}>xDAI Burned</span>
-                        <span style={{ color: 'var(--text)' }}>{footprint.offChain.totalXdaiBurned.toFixed(1)}</span>
-                      </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <span style={{ color: 'var(--muted)' }}>Surge Score</span>
-                        <span style={{ color: 'var(--text)' }}>{footprint.offChain.surgeScore}</span>
+                        <span style={{ color: 'var(--muted)' }}>GNS Name</span>
+                        <span className="mono" style={{ color: 'var(--text)', fontSize: '0.8rem' }}>
+                          {footprint.offChain.gnsName || '—'}
+                        </span>
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                         <span style={{ color: 'var(--muted)' }}>MCP Servers</span>
@@ -491,15 +488,15 @@ export default function OSINTDashboard() {
                   </div>
                 </div>
 
-                {x402.x402.paymentEndpoints.length > 0 && (
-                  <div>
-                    <h3 style={{ marginBottom: '0.75rem', fontSize: '0.875rem', fontWeight: 600, color: 'var(--red)' }}>Payment Endpoints</h3>
+                <div>
+                  <h3 style={{ marginBottom: '0.75rem', fontSize: '0.875rem', fontWeight: 600, color: 'var(--red)' }}>Agent Payment Endpoints</h3>
+                  {x402.x402.paymentEndpoints.length > 0 ? (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                       {x402.x402.paymentEndpoints.slice(0, 5).map((ep, i) => (
                         <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: ep.supportsX402 ? 'var(--green-bg)' : 'var(--bg-alt)', padding: '0.5rem 1rem', fontSize: '0.875rem' }}>
                           <span className="mono" style={{ color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '60%' }}>{ep.url}</span>
                           <span style={{ color: ep.supportsX402 ? 'var(--green)' : 'var(--muted)' }}>
-                            {ep.supportsX402 ? '✓ x402' : '—'}
+                            {ep.supportsX402 ? '✓ x402' : '— no x402'}
                           </span>
                         </div>
                       ))}
@@ -509,8 +506,12 @@ export default function OSINTDashboard() {
                         </div>
                       )}
                     </div>
-                  </div>
-                )}
+                  ) : (
+                    <div style={{ fontSize: '0.8rem', color: 'var(--muted)', fontStyle: 'italic' }}>
+                      No public MCP endpoints registered — agent payment endpoints unknown.
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </div>
