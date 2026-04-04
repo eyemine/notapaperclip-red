@@ -52,13 +52,24 @@ export async function GET(request: NextRequest) {
       analyzeX402Footprint(agentName),
     ]);
     
+    // An agent with a funded Safe can receive direct-transfer x402 payments on Gnosis.
+    // x402 "enabled" = has any payment destination (Safe or HTTP endpoint).
+    const hasSafeDestination = solvency.balance !== null;
+    const x402Enabled = x402Profile.x402Support || hasSafeDestination;
+    // Micropayment ready = solvent Safe (can send/receive) OR endpoint with small min-amount
+    const micropaymentReady = solvency.solvent || x402Profile.micropaymentReady;
+    // Chains: detected from endpoints, or implied by Safe on Gnosis
+    const supportedChains = x402Profile.supportedChains.length > 0
+      ? x402Profile.supportedChains
+      : (hasSafeDestination ? ['gnosis'] : []);
+
     return NextResponse.json({
       type: 'agent_probe',
       agent: agentName,
       x402: {
-        enabled: x402Profile.x402Support,
-        micropaymentReady: x402Profile.micropaymentReady,
-        supportedChains: x402Profile.supportedChains,
+        enabled: x402Enabled,
+        micropaymentReady,
+        supportedChains,
         paymentEndpoints: x402Profile.paymentEndpoints,
       },
       solvency: {

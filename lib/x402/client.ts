@@ -301,15 +301,24 @@ export async function analyzeX402Footprint(agent: string): Promise<{
     checkAgentSolvency(agent),
   ]);
   
-  const paymentEndpoints = x402Profile.paymentEndpoints.filter(e => e.supportsX402).length;
-  const supportedChains = x402Profile.supportedChains.length;
+  const activeEndpoints = x402Profile.paymentEndpoints.filter(e => e.supportsX402).length;
   
-  // Calculate scores (0-100)
-  const endpointScore = Math.min(paymentEndpoints * 25, 100);
-  const chainScore = Math.min(supportedChains * 33, 100);
-  const solvencyScore = solvency.solvent ? 100 : solvency.balance && solvency.balance > 0 ? 50 : 0;
+  // A Safe address on Gnosis IS a valid x402 payment destination (direct xDAI transfer).
+  // Agents don't need public MCP endpoints to accept micropayments.
+  const hasSafeWallet = solvency.balance !== null; // balance query succeeded → Safe exists
+  const impliedChains = hasSafeWallet ? ['gnosis'] : [];
+  const detectedChains = x402Profile.supportedChains.length > 0
+    ? x402Profile.supportedChains
+    : impliedChains;
   
-  const footprintScore = Math.round((endpointScore + chainScore + solvencyScore) / 3);
+  // Scoring:
+  //   Solvency (40pts): agent can pay out — has funded Safe
+  //   Payment destination (30pts): has Safe address = can receive payments
+  //   Endpoint detection (30pts): public MCP/HTTP endpoints advertise x402
+  const solvencyScore    = solvency.solvent ? 40 : (solvency.balance && solvency.balance > 0 ? 20 : 0);
+  const destinationScore = hasSafeWallet ? 30 : 0;
+  const endpointScore    = Math.min(activeEndpoints * 15, 30);
+  const footprintScore   = solvencyScore + destinationScore + endpointScore;
   
   let overallReadiness: 'ready' | 'partial' | 'not_ready' = 'not_ready';
   if (footprintScore >= 70) overallReadiness = 'ready';
@@ -317,8 +326,8 @@ export async function analyzeX402Footprint(agent: string): Promise<{
   
   return {
     footprintScore,
-    paymentEndpoints,
-    supportedChains,
+    paymentEndpoints: activeEndpoints,
+    supportedChains: detectedChains.length,
     solvencyScore,
     overallReadiness,
   };
