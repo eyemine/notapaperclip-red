@@ -440,7 +440,7 @@ function Erc8004FeedInner() {
               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500 }}>{ev.eventType}</span>
               <span className="mono" style={{ fontSize: '0.72rem', color: 'var(--red)' }}>
                 {ev.agentId === '?' ? <span style={{ color: 'var(--muted)' }}>?</span> : (
-                  <a href={`/swarm?swarm=${encodeURIComponent(ev.agentId)}`} style={{ color: 'var(--red)', textDecoration: 'none' }}>#{ev.agentId}</a>
+                  <a href={`/osint?mode=token&agent=${encodeURIComponent(ev.agentId)}&chain=${ev.chainId === 100 ? 'gnosis' : ev.chainId === 8453 ? 'base' : 'baseSepolia'}`} style={{ color: 'var(--red)', textDecoration: 'none' }}>#{ev.agentId}</a>
                 )}
               </span>
               <span className="mono" style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>{ev.block.toLocaleString()}</span>

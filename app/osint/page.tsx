@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 
 const CHAINS = [
   { key: 'gnosis',      label: 'Gnosis',       chainId: 100,   explorer: 'https://gnosisscan.io/tx/' },
@@ -118,6 +119,15 @@ interface GlassboxData {
 }
 
 export default function OSINTDashboard() {
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <OSINTDashboardContent />
+    </Suspense>
+  );
+}
+
+function OSINTDashboardContent() {
+  const searchParams = useSearchParams();
   const [mode, setMode] = useState<LookupMode>('agent');
   const [chain, setChain] = useState('gnosis');
   const [agentName, setAgentName] = useState('');
@@ -128,6 +138,23 @@ export default function OSINTDashboard() {
   const [x402, setX402] = useState<X402Data | null>(null);
   const [glassbox, setGlassbox] = useState<GlassboxData | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Handle URL parameters
+  useEffect(() => {
+    const urlMode = searchParams.get('mode') as LookupMode;
+    const urlAgent = searchParams.get('agent');
+    const urlChain = searchParams.get('chain');
+    
+    if (urlMode) setMode(urlMode);
+    if (urlChain) setChain(urlChain);
+    if (urlAgent) {
+      setAgentName(urlAgent);
+      // Auto-trigger search if we have URL parameters
+      setTimeout(() => {
+        handleAnalyze();
+      }, 100);
+    }
+  }, [searchParams]);
 
   async function handleAnalyze() {
     if (!agentName.trim()) return;
@@ -306,6 +333,37 @@ export default function OSINTDashboard() {
       {error && (
         <div className="alert alert-warn" style={{ marginBottom: '1.5rem' }}>
           {error}
+        </div>
+      )}
+
+        {/* Loading State */}
+      {loading && (
+        <div style={{ 
+          display: 'flex', 
+          flexDirection: 'column', 
+          alignItems: 'center', 
+          justifyContent: 'center', 
+          padding: '3rem',
+          gap: '1rem',
+          border: '1px solid var(--border)',
+          borderRadius: 'var(--radius)',
+          background: 'var(--bg-alt)'
+        }}>
+          <div style={{ 
+            width: 48, 
+            height: 48, 
+            animation: 'spin 1s linear infinite',
+            opacity: 0.7
+          }}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <path d="M12 2L2 7v10c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V7l-10-5z"/>
+              <path d="M12 8v4l3 3" stroke="var(--text)" fill="none"/>
+            </svg>
+          </div>
+          <div style={{ fontSize: '0.9rem', color: 'var(--muted)', textAlign: 'center' }}>
+            <div>Analyzing glassbox transparency...</div>
+            <div style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>Collecting OSINT intelligence</div>
+          </div>
         </div>
       )}
 
