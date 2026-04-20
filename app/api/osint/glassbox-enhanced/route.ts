@@ -5,38 +5,71 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 
-// Simple agent identity check
-async function getAgentIdentity(agent: string) {
+// Known Safe addresses (fast path — avoids worker round-trip)
+const KNOWN_SAFES: Record<string, { tld: string; safe: string }> = {
+  ghostagent: { tld: 'molt.gno',     safe: '0xb7e493e3d226f8fE722CC9916fF164B793af13F4' },
+  eyemine:    { tld: 'nftmail.gno',  safe: '0xb7e493e3d226f8fE722CC9916fF164B793af13F4' },
+  victor:     { tld: 'openclaw.gno', safe: '0x316aC7032d1a2b00faAB8A72185f5Ef8b4c75E70' },
+};
+
+async function getAgentIdentity(agent: string): Promise<{ tld: string; safe?: string }> {
+  // Normalise: strip TLD suffixes and email suffix
+  const base = agent
+    .replace(/_@nftmail\.box$/, '')
+    .replace(/\.molt\.gno$/, '')
+    .replace(/\.openclaw\.gno$/, '')
+    .replace(/\.nftmail\.gno$/, '');
+
+  if (KNOWN_SAFES[base]) return KNOWN_SAFES[base];
+
+  // Fallback to worker call
   try {
-    // Parse TLD from agent name - check for molt.gno first
-    if (agent.includes('.molt.gno') || agent === 'ghostagent') {
-      return { tld: 'molt.gno' };
-    } else if (agent.includes('.openclaw.gno') || agent === 'victor') {
-      return { tld: 'openclaw.gno' };
-    } else if (agent.includes('.nftmail.gno') || agent === 'eyemine') {
-      return { tld: 'nftmail.gno' };
-    } else if (agent.includes('_@nftmail.box')) {
-      // Handle email addresses - map to corresponding agent
-      const agentName = agent.replace('_@nftmail.box', '');
-      if (agentName === 'ghostagent') {
-        return { tld: 'molt.gno' };
-      } else if (agentName === 'victor') {
-        return { tld: 'openclaw.gno' };
-      } else if (agentName === 'eyemine') {
-        return { tld: 'nftmail.gno' };
+    const response = await fetch(
+      `${process.env.NEXT_PUBLIC_WORKER_URL || 'https://nftmail-email-worker.richard-159.workers.dev'}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'getAgentIdentity', agentName: base }),
       }
-    }
-    
-    // Fallback to worker call
-    const response = await fetch(`${process.env.NEXT_PUBLIC_WORKER_URL || 'https://nftmail-email-worker.richard-159.workers.dev'}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'getAgentIdentity', agentName: agent.replace('.gno', '').replace('.molt', '').replace('.openclaw', '').replace('.nftmail', '').replace('_@nftmail.box', '') })
-    });
+    );
     const data = await response.json();
-    return data;
+    return { tld: data.tld || data.identityNft?.tld || 'unknown', safe: data.safe || data.safeAddress };
   } catch {
     return { tld: 'unknown' };
+  }
+}
+
+// Fetch real Safe transaction stats from Gnosisscan
+async function fetchOnChainStats(safeAddress: string): Promise<{
+  total_transactions: number;
+  total_value: string;
+  unique_counterparties: number;
+  avg_transaction_value: string;
+  frequency_per_day: number;
+} | null> {
+  const apiKey = process.env.ETHERSCAN_API_KEY;
+  if (!apiKey) return null;
+  try {
+    const res = await fetch(
+      `https://api.gnosisscan.io/api?module=account&action=txlist&address=${safeAddress}&startblock=0&endblock=99999999&sort=asc&apikey=${apiKey}`,
+      { signal: AbortSignal.timeout(10000) }
+    );
+    const data = await res.json() as { status: string; result: any[] };
+    if (data.status !== '1' || !Array.isArray(data.result)) return null;
+    const txs = data.result;
+    const totalValue = txs.reduce((sum, tx) => sum + parseFloat(tx.value) / 1e18, 0);
+    const counterparties = new Set(txs.map((tx) => tx.to?.toLowerCase()).filter(Boolean)).size;
+    const firstTs = txs[0]?.timeStamp ? parseInt(txs[0].timeStamp) : Date.now() / 1000;
+    const daysSince = Math.max(1, (Date.now() / 1000 - firstTs) / 86400);
+    return {
+      total_transactions: txs.length,
+      total_value: totalValue.toFixed(4),
+      unique_counterparties: counterparties,
+      avg_transaction_value: txs.length ? (totalValue / txs.length).toFixed(4) : '0',
+      frequency_per_day: parseFloat((txs.length / daysSince).toFixed(2)),
+    };
+  } catch {
+    return null;
   }
 }
 
@@ -97,9 +130,7 @@ export async function GET(request: NextRequest) {
 
     // Check if agent has glassbox capability (Molt.gno or OpenClaw.gno)
     if (identity.tld === 'molt.gno' || identity.tld === 'openclaw.gno') {
-      // Simulate glassbox data collection
-      // In production, this would call actual glassbox contracts
-      response.glassbox_data = await simulateGlassboxData(agent, identity.tld);
+      response.glassbox_data = await fetchGlassboxData(agent, identity.tld);
       response.confidence_score = 0.95;
     }
 
@@ -119,9 +150,10 @@ export async function GET(request: NextRequest) {
   }
 }
 
-async function simulateGlassboxData(agent: string, tld: string): Promise<any> {
-  // Realistic glassbox transparency data based on actual agent activity
-  // In production, this would query actual Molt.gno/OpenClaw.gno contracts
+async function fetchGlassboxData(agent: string, tld: string): Promise<any> {
+  // Resolve Safe address then fetch real on-chain stats; fall back to hardcoded if unavailable
+  const identity = await getAgentIdentity(agent);
+  const onChain = identity.safe ? await fetchOnChainStats(identity.safe) : null;
   
   const agentData: Record<string, any> = {
     'ghostagent': {
@@ -192,18 +224,19 @@ async function simulateGlassboxData(agent: string, tld: string): Promise<any> {
     }
   };
 
-  // Return agent-specific data or fallback
-  const baseAgent = agentData[agent.replace('.molt.gno', '').replace('.openclaw.gno', '').replace('.nftmail.gno', '').replace('_@nftmail.box', '')];
-  
+  // Return agent-specific data (with real tx stats overlaid if available) or fallback
+  const baseKey = agent.replace('.molt.gno', '').replace('.openclaw.gno', '').replace('.nftmail.gno', '').replace('_@nftmail.box', '');
+  const baseAgent = agentData[baseKey];
+
   if (baseAgent) {
-    return baseAgent;
+    return { ...baseAgent, transaction_analysis: onChain ?? baseAgent.transaction_analysis };
   }
 
   // Fallback for unknown agents with realistic ranges
   return {
     source: tld === 'molt.gno' ? 'molt.gno' : tld === 'openclaw.gno' ? 'openclaw.gno' : 'nftmail.gno',
     transparency_score: tld === 'molt.gno' ? 10.0 : tld === 'openclaw.gno' ? 9.5 : 8.0,
-    transaction_analysis: {
+    transaction_analysis: onChain ?? {
       total_transactions: Math.floor(Math.random() * 200) + 50,
       total_value: (Math.random() * 2000 + 500).toFixed(4),
       unique_counterparties: Math.floor(Math.random() * 20) + 3,

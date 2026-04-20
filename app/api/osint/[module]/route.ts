@@ -36,6 +36,7 @@ interface AgentFootprint {
   offChain: {
     tld: string;
     tier: string;
+    principal: string | null;
     totalXdaiBurned: number;
     surgeScore: number;
     mcpServers: string[];
@@ -440,6 +441,7 @@ async function analyzeFootprint(agent: string): Promise<AgentFootprint> {
     offChain: {
       tld: tld || 'unknown',
       tier: identity?.accountTier || identity?.tier || 'unknown',
+      principal: identity?.principal || null,
       totalXdaiBurned: identity?.totalXdaiBurned || 0,
       surgeScore: identity?.surgeReputationScore || 0,
       mcpServers,
@@ -1225,7 +1227,7 @@ async function checkExposure(agent: string): Promise<ExposureReport> {
 
   // Extract from actual worker shape
   const safeAddress = identity.safe || identity.safeAddress || null;
-  const tld = identity.identityNft?.tld || null;
+  const tld = identity.identityNft?.tld || identity.tld || null;
   const tldBase = tld ? tld.replace(/\.gno$/, '') : null;
   const KNOWN_TLDS = ['molt', 'nftmail', 'openclaw', 'picoclaw', 'vault', 'agent'];
   const hasX402 = !!(tldBase && KNOWN_TLDS.includes(tldBase));
@@ -1505,6 +1507,11 @@ async function resolveAgentIdentifier(raw: string, chain?: string): Promise<stri
   // Agent email: [name]_@nftmail.box
   if (v.includes('_@nftmail.box')) {
     return v.replace('_@nftmail.box', '');
+  }
+
+  // Bare trailing underscore = A2A agent suffix (e.g. "eyemine_") — strip it
+  if (v.endsWith('_') && !v.includes('@')) {
+    return v.slice(0, -1);
   }
 
   // Regular agent name — return as-is; analyzeFootprint handles graceful fallback

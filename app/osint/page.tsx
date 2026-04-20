@@ -25,6 +25,7 @@ interface FootprintData {
   offChain: {
     tld: string;
     tier: string;
+    principal: string | null;
     surgeScore: number;
     mcpServers: string[];
     gnsName: string | null;
@@ -364,14 +365,13 @@ function OSINTDashboardContent() {
           background: 'var(--bg-alt)'
         }}>
           <div style={{ 
-            width: 48, 
-            height: 48, 
-            animation: 'spin 1s linear infinite',
-            opacity: 0.7
+            width: 56, 
+            height: 56, 
+            animation: 'spin 1.4s linear infinite',
+            opacity: 0.75
           }}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <path d="M12 2L2 7v10c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V7l-10-5z"/>
-              <path d="M12 8v4l3 3" stroke="var(--text)" fill="none"/>
+            <svg viewBox="0 0 34 32" xmlns="http://www.w3.org/2000/svg" width="56" height="56">
+              <path fill="currentColor" d="M5.587,31.867c2.015,0,4.183-1.026,5.707-2.551l16.883-17.169c0.866-0.866,1.348-2.014,1.356-3.231c0.009-1.22-0.459-2.364-1.316-3.222c-1.768-1.767-4.661-1.751-6.462,0.048L8.814,19.272c-0.203,0.213-0.196,0.552,0.018,0.756c0.213,0.204,0.55,0.196,0.756-0.017L22.52,6.489c1.373-1.374,3.591-1.391,4.941-0.04c0.653,0.653,1.01,1.526,1.003,2.458c-0.006,0.935-0.377,1.816-1.046,2.486L10.535,28.563c-1.776,1.775-5.426,3.385-7.615,1.194c-1.037-1.037-1.557-2.309-1.503-3.679c0.053-1.36,0.693-2.72,1.807-3.833L22.52,2.661c1.026-1.026,2.629-1.62,4.396-1.626c0.011,0,0.021,0,0.032,0c1.752,0,3.333,0.577,4.342,1.586c1.016,1.015,1.594,2.609,1.587,4.374c-0.007,1.767-0.601,3.369-1.634,4.402L16.348,26.882c-0.205,0.213-0.198,0.551,0.015,0.756c0.212,0.204,0.551,0.198,0.755-0.015l14.888-15.478c1.225-1.224,1.932-3.1,1.939-5.146c0.009-2.047-0.684-3.919-1.899-5.134c-1.208-1.208-3.064-1.9-5.098-1.9c-0.012,0-0.024,0-0.036,0c-2.047,0.008-3.923,0.715-5.15,1.942L2.465,21.492c-2.701,2.701-2.827,6.495-0.301,9.021C3.111,31.459,4.318,31.867,5.587,31.867z"/>
             </svg>
           </div>
           <div style={{ fontSize: '0.9rem', color: 'var(--muted)', textAlign: 'center' }}>
@@ -427,6 +427,14 @@ function OSINTDashboardContent() {
                   <div>
                     <h3 style={{ marginBottom: '0.75rem', fontSize: '0.875rem', fontWeight: 600, color: 'var(--red)' }}>Off-Chain Data</h3>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', fontSize: '0.875rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'var(--muted)' }}>Principal (ERC-8226)</span>
+                        <span className="mono" style={{ color: '#d97706', fontSize: '0.8rem' }}>
+                          {footprint.offChain.principal ?
+                            `${footprint.offChain.principal.slice(0, 6)}...${footprint.offChain.principal.slice(-4)}` :
+                            '—'}
+                        </span>
+                      </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                         <span style={{ color: 'var(--muted)' }}>TLD</span>
                         <span style={{ color: 'var(--text)' }}>{footprint.offChain.tld}</span>

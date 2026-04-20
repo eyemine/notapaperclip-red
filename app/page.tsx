@@ -21,6 +21,7 @@ interface AgentIdentity {
   name: string;
   email: string;
   identityNft: { name: string; tokenId: number | null; owner: string | null; tld: string | null } | null;
+  principal: string | null;
   safe: string | null;
   storyIp: string | null;
   erc8004: { gnosis?: Erc8004Chain; base?: Erc8004Chain; baseSepolia?: Erc8004Chain };
@@ -274,6 +275,21 @@ function Erc8004FeedInner() {
                       {agentIdentity.identityNft.owner.slice(0, 8)}…{agentIdentity.identityNft.owner.slice(-6)}
                     </div>
                   )}
+                </div>
+
+                {/* Principal (ERC-8226) */}
+                <div>
+                  <div style={{ color: 'var(--muted)', fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 2 }}>Principal (ERC-8226)</div>
+                  {agentIdentity?.principal ? (
+                    <div>
+                      <span style={{ fontFamily: 'monospace', fontSize: '0.72rem', fontWeight: 600, color: '#d97706' }}>
+                        {agentIdentity.principal.slice(0, 8)}…{agentIdentity.principal.slice(-6)}
+                      </span>
+                      {agentIdentity.identityNft?.owner && agentIdentity.principal.toLowerCase() === agentIdentity.identityNft.owner.toLowerCase() && (
+                        <span style={{ fontSize: '0.6rem', color: 'var(--green)', marginLeft: '0.4rem', fontWeight: 700 }}>✓ matches NFT owner</span>
+                      )}
+                    </div>
+                  ) : <span style={{ color: 'var(--muted)' }}>—</span>}
                 </div>
 
                 {/* Safe */}

@@ -85,6 +85,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       agent: identity.name,
       tld,
+      principal: identity.principal || null,
       safe: safeAddress,
       erc8004: identity.erc8004 || {},
       email: identity.email,
