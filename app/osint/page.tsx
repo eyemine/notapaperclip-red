@@ -427,11 +427,18 @@ function OSINTDashboardContent() {
                   <div>
                     <h3 style={{ marginBottom: '0.75rem', fontSize: '0.875rem', fontWeight: 600, color: 'var(--red)' }}>Off-Chain Data</h3>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', fontSize: '0.875rem' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <span style={{ color: 'var(--muted)' }}>Principal (ERC-8226)</span>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                        <span style={{ color: 'var(--muted)' }} title="NFT owner wallet — the human principal who controls this agent via their BYO NFT">NFT Owner Wallet</span>
                         <span className="mono" style={{ color: '#d97706', fontSize: '0.8rem' }}>
                           {footprint.offChain.principal ?
-                            `${footprint.offChain.principal.slice(0, 6)}...${footprint.offChain.principal.slice(-4)}` :
+                            <a
+                              href={`https://gnosisscan.io/address/${footprint.offChain.principal}`}
+                              target="_blank" rel="noopener noreferrer"
+                              style={{ color: '#d97706', textDecoration: 'none' }}
+                              title={footprint.offChain.principal}
+                            >
+                              {footprint.offChain.principal.slice(0, 6)}…{footprint.offChain.principal.slice(-4)}
+                            </a> :
                             '—'}
                         </span>
                       </div>
@@ -453,6 +460,19 @@ function OSINTDashboardContent() {
                         <span style={{ color: 'var(--muted)' }}>MCP Servers</span>
                         <span style={{ color: 'var(--text)' }}>{footprint.offChain.mcpServers.length}</span>
                       </div>
+                      {(footprint.offChain as any).sandboxEmails?.human && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', paddingTop: '0.25rem', borderTop: '1px solid var(--border)', marginTop: '0.25rem' }}>
+                          <span style={{ color: 'var(--muted)', fontSize: '0.75rem', fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase' }}>Sandbox Emails</span>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem' }}>
+                            <span style={{ color: 'var(--muted)' }}>Human (HITL)</span>
+                            <span className="mono" style={{ color: 'var(--text)' }}>{(footprint.offChain as any).sandboxEmails.human}</span>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem' }}>
+                            <span style={{ color: 'var(--muted)' }}>Agent (A2A)</span>
+                            <span className="mono" style={{ color: 'var(--text)' }}>{(footprint.offChain as any).sandboxEmails.agent}</span>
+                          </div>
+                        </div>
+                      )}
                       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                         <span style={{ color: 'var(--muted)' }}>x402 Ready</span>
                         <span style={{ color: footprint.offChain.hasX402Capability ? 'var(--green)' : 'var(--amber)' }}>

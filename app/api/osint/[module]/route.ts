@@ -43,6 +43,7 @@ interface AgentFootprint {
     gnsName: string | null;
     hasX402Capability: boolean;
     emailAddress: string | null;
+    sandboxEmails: { human: string | null; agent: string | null };
     agentCardUrl: string | null;
   };
   exposure: {
@@ -346,6 +347,15 @@ async function analyzeFootprint(agent: string): Promise<AgentFootprint> {
   const genomeUrl = identity?.genomeUrl || identity?.links?.genome || null; // kept for compat
   const emailAddress = identity?.email || identity?.emailAddress || null;
 
+  // Sandbox email accounts: human HITL + agent A2A
+  // For BYO molts: chonk.676@nftmail.box (human) + chonk.676_@nftmail.box (agent)
+  // For regular agents: agentname@nftmail.box / agentname_@nftmail.box
+  const agentNameForEmail = typeof agent === 'string' && !agent.startsWith('erc8004:') && !agent.startsWith('#') ? agent : (identity?.name || null);
+  const sandboxEmails = agentNameForEmail ? {
+    human: `${agentNameForEmail}@nftmail.box`,
+    agent: `${agentNameForEmail}_@nftmail.box`,
+  } : { human: null, agent: null };
+
   // ─── PHASE 4: Gather on-chain data ───
   let onChainData = {
     safeAddress,
@@ -448,6 +458,7 @@ async function analyzeFootprint(agent: string): Promise<AgentFootprint> {
       gnsName,
       hasX402Capability,
       emailAddress,
+      sandboxEmails,
       agentCardUrl,
     },
     exposure: {
