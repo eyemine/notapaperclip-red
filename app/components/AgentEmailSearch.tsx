@@ -5,16 +5,60 @@ import type { AgentResolution } from '@/app/lib/agent-email-resolution';
 
 type SearchStatus = 'idle' | 'searching' | 'found' | 'not_found' | 'invalid' | 'error';
 
+// ── AgentCash / Spend audit types ────────────────────────────────────────────
+interface SpendAudit {
+  spendHealth: string;
+  balance: number | null;
+  runwayDays: number | null;
+  dailyBurnRate: number;
+  totalSpent7d: number;
+  livenessStatus: string;
+  anomalyCount: number;
+  score: number;
+  tier: string;
+  label: string;
+}
+
+// ── ENS metadata types ────────────────────────────────────────────────────────
+interface EnsMetadata {
+  name: string | null;
+  avatar: string | null;
+  description: string | null;
+  twitter: string | null;
+  url: string | null;
+  github: string | null;
+  email: string | null;
+}
+
 export default function AgentEmailSearch({ initialEmail = '' }: { initialEmail?: string }) {
-  const [input,  setInput]  = useState(initialEmail);
-  const [status, setStatus] = useState<SearchStatus>('idle');
-  const [result, setResult] = useState<AgentResolution | null>(null);
-  const [error,  setError]  = useState<string | null>(null);
+  const [input,       setInput]       = useState(initialEmail);
+  const [status,      setStatus]      = useState<SearchStatus>('idle');
+  const [result,      setResult]      = useState<AgentResolution | null>(null);
+  const [error,       setError]       = useState<string | null>(null);
+  const [spendAudit,  setSpendAudit]  = useState<SpendAudit | null>(null);
+  const [ensMetadata, setEnsMetadata] = useState<EnsMetadata | null>(null);
+  const [auditLoading, setAuditLoading] = useState(false);
 
   useEffect(() => {
     if (initialEmail) search();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  async function fetchAuditAndEns(label: string, onChainOwner: string | null) {
+    setAuditLoading(true);
+    try {
+      // Fetch spend audit and ENS in parallel
+      const [auditRes, ensRes] = await Promise.all([
+        fetch(`/api/agent-audit?agent=${encodeURIComponent(label)}`).then(r => r.ok ? r.json() : null),
+        onChainOwner
+          ? fetch(`/api/ens-lookup?address=${encodeURIComponent(onChainOwner)}`).then(r => r.ok ? r.json() : null)
+          : Promise.resolve(null),
+      ]);
+      if (auditRes) setSpendAudit(auditRes as SpendAudit);
+      if (ensRes)   setEnsMetadata(ensRes as EnsMetadata);
+    } catch { /* non-fatal */ }
+    setAuditLoading(false);
+  }
 
   async function search() {
     const email = input.trim().toLowerCase();
@@ -23,6 +67,8 @@ export default function AgentEmailSearch({ initialEmail = '' }: { initialEmail?:
     setStatus('searching');
     setResult(null);
     setError(null);
+    setSpendAudit(null);
+    setEnsMetadata(null);
 
     try {
       const res  = await fetch(`/api/agent-lookup?email=${encodeURIComponent(email)}`);
@@ -46,6 +92,9 @@ export default function AgentEmailSearch({ initialEmail = '' }: { initialEmail?:
 
       setResult(data);
       setStatus('found');
+
+      // Fire audit + ENS fetch in background — non-blocking
+      fetchAuditAndEns(data.label!, (data as any).onChainOwner ?? null);
     } catch (err) {
       setError(String(err));
       setStatus('error');
@@ -269,6 +318,126 @@ export default function AgentEmailSearch({ initialEmail = '' }: { initialEmail?:
               </tbody>
             </table>
           </div>
+
+          {/* ── AgentCash Spend Audit panel ──────────────────────────────── */}
+          {auditLoading && (
+            <div className="card" style={{ borderColor: 'var(--border)', opacity: 0.6 }}>
+              <p style={{ fontSize: '0.78rem', color: 'var(--muted)' }}>⏳ Fetching spend audit…</p>
+            </div>
+          )}
+          {!auditLoading && spendAudit && (
+            <div className="card">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
+                <span style={{ fontSize: '0.85rem', fontWeight: 700 }}>💸 AgentCash Spend Audit</span>
+                <span style={{
+                  fontSize: '0.7rem', fontWeight: 700, padding: '0.1rem 0.5rem',
+                  borderRadius: 5,
+                  background: spendAudit.spendHealth === 'healthy' ? 'var(--green-bg)' : spendAudit.spendHealth === 'critical' ? 'var(--red-light)' : 'var(--amber-bg)',
+                  color: spendAudit.spendHealth === 'healthy' ? 'var(--green)' : spendAudit.spendHealth === 'critical' ? 'var(--red)' : 'var(--amber)',
+                }}>
+                  {spendAudit.spendHealth.toUpperCase()}
+                </span>
+                {spendAudit.anomalyCount > 0 && (
+                  <span style={{ fontSize: '0.7rem', fontWeight: 700, padding: '0.1rem 0.5rem', borderRadius: 5, background: 'var(--red-light)', color: 'var(--red)' }}>
+                    ⚠ {spendAudit.anomalyCount} anomal{spendAudit.anomalyCount === 1 ? 'y' : 'ies'}
+                  </span>
+                )}
+              </div>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+                <tbody>
+                  <DataRow label="Safe Balance">
+                    <span style={{ color: 'var(--fg)', fontWeight: 600 }}>
+                      {spendAudit.balance !== null ? `${spendAudit.balance} xDAI` : '—'}
+                    </span>
+                  </DataRow>
+                  <DataRow label="Runway">
+                    <span style={{ color: spendAudit.runwayDays !== null && spendAudit.runwayDays < 3 ? 'var(--red)' : 'var(--fg)' }}>
+                      {spendAudit.runwayDays !== null ? `${spendAudit.runwayDays}d` : 'No burn'}
+                    </span>
+                  </DataRow>
+                  <DataRow label="Burn Rate (7d avg)">
+                    <span style={{ color: 'var(--muted)' }}>
+                      {spendAudit.dailyBurnRate > 0 ? `${spendAudit.dailyBurnRate} xDAI/day` : 'No spend'}
+                    </span>
+                  </DataRow>
+                  <DataRow label="Spent (7d)">
+                    <span style={{ color: 'var(--muted)' }}>
+                      {spendAudit.totalSpent7d > 0 ? `${spendAudit.totalSpent7d} xDAI` : '—'}
+                    </span>
+                  </DataRow>
+                  <DataRow label="Liveness">
+                    <span style={{
+                      color: spendAudit.livenessStatus === 'active' ? 'var(--green)' : spendAudit.livenessStatus === 'idle' ? 'var(--amber)' : 'var(--muted)',
+                      fontWeight: 600,
+                    }}>
+                      {spendAudit.livenessStatus.charAt(0).toUpperCase() + spendAudit.livenessStatus.slice(1)}
+                    </span>
+                  </DataRow>
+                  <DataRow label="Audit Tier">
+                    <span style={{ fontWeight: 700, textTransform: 'capitalize' }}>{spendAudit.tier}</span>
+                    {' '}
+                    <span style={{ color: 'var(--muted)', fontSize: '0.73rem' }}>({spendAudit.score}/100)</span>
+                  </DataRow>
+                </tbody>
+              </table>
+              <p style={{ marginTop: '0.5rem', fontSize: '0.72rem', color: 'var(--muted)' }}>
+                {spendAudit.label}
+              </p>
+            </div>
+          )}
+
+          {/* ── ENS Metadata panel (controller wallet ENS) ─────────────────── */}
+          {!auditLoading && ensMetadata && (ensMetadata.name || ensMetadata.description || ensMetadata.twitter) && (
+            <div className="card">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', marginBottom: '0.6rem' }}>
+                {ensMetadata.avatar && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={ensMetadata.avatar}
+                    alt={ensMetadata.name ?? 'ENS avatar'}
+                    style={{ width: 36, height: 36, borderRadius: '50%', border: '1px solid var(--border)', objectFit: 'cover', flexShrink: 0 }}
+                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                  />
+                )}
+                <div>
+                  <span style={{ fontSize: '0.85rem', fontWeight: 700 }}>🌐 Controller ENS Identity</span>
+                  {ensMetadata.name && (
+                    <div style={{ fontSize: '0.78rem', color: 'var(--accent)', fontWeight: 600 }}>{ensMetadata.name}</div>
+                  )}
+                </div>
+              </div>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+                <tbody>
+                  {ensMetadata.description && (
+                    <DataRow label="Bio">
+                      <span style={{ color: 'var(--muted)' }}>{ensMetadata.description}</span>
+                    </DataRow>
+                  )}
+                  {ensMetadata.twitter && (
+                    <DataRow label="Twitter / X">
+                      <a href={`https://x.com/${ensMetadata.twitter.replace('@', '')}`} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)' }}>
+                        @{ensMetadata.twitter.replace('@', '')}
+                      </a>
+                    </DataRow>
+                  )}
+                  {ensMetadata.url && (
+                    <DataRow label="URL">
+                      <a href={ensMetadata.url} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', wordBreak: 'break-all' }}>
+                        {ensMetadata.url}
+                      </a>
+                    </DataRow>
+                  )}
+                  {ensMetadata.github && (
+                    <DataRow label="GitHub">
+                      <a href={`https://github.com/${ensMetadata.github}`} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)' }}>
+                        {ensMetadata.github}
+                      </a>
+                    </DataRow>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
 
           {/* Disclaimer */}
           <p style={{ fontSize: '0.73rem', color: 'var(--muted)', lineHeight: 1.5 }}>

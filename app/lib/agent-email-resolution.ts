@@ -36,11 +36,12 @@ export const ERC8004_CONTRACTS = {
 export type ResolutionStatus = 'ok' | 'not_found' | 'invalid_format' | 'error';
 
 export interface AgentResolution {
-  status:       ResolutionStatus;
-  email?:       string;
-  label?:       string;
-  safeAddress?: string;
-  agentId?:     number;
+  status:          ResolutionStatus;
+  email?:          string;
+  label?:          string;
+  safeAddress?:    string;
+  onChainOwner?:   string;   // EOA that controls the agent (for ENS lookup)
+  agentId?:        number;
   network?:     string;
   chainId?:     number;
   // Per-chain ERC-8004 registrations
@@ -280,6 +281,7 @@ export async function resolveAgentEmail(email: string): Promise<AgentResolution>
     email,
     label,
     safeAddress,
+    onChainOwner:    agentData.onChainOwner ?? undefined,
     agentId:         erc8004?.agentId,
     network:         erc8004?.network,
     chainId:         erc8004?.chainId,

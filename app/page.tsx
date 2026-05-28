@@ -17,6 +17,7 @@ interface ChainEvent {
 const WORKER = 'https://nftmail-email-worker.richard-159.workers.dev';
 
 interface Erc8004Chain { agentId: number; chainId: number; agentURI: string; registeredAt?: number; }
+interface AgentProfile { description?: string; webUrl?: string; socialLinks?: Record<string, string>; }
 interface AgentIdentity {
   name: string;
   email: string;
@@ -25,6 +26,7 @@ interface AgentIdentity {
   safe: string | null;
   storyIp: string | null;
   erc8004: { gnosis?: Erc8004Chain; base?: Erc8004Chain; baseSepolia?: Erc8004Chain };
+  profile: AgentProfile | null;
   links: { profile: string; agentCard: string; a2aCard: string; registry: string };
 }
 
@@ -341,6 +343,32 @@ function Erc8004FeedInner() {
                     style={{ fontSize: '0.68rem', color: 'var(--green)', fontWeight: 700, textDecoration: 'none', marginLeft: 'auto' }}>AGENTS.md ↗</a>
                   <a href="https://companies.sh" target="_blank" rel="noopener noreferrer"
                     style={{ fontSize: '0.68rem', color: 'var(--muted)', textDecoration: 'none' }}>companies.sh ↗</a>
+                </div>
+              )}
+
+              {/* User-edited profile (description, webUrl, socialLinks) */}
+              {agentIdentity?.profile && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', padding: '0.75rem 1rem', background: 'var(--bg-alt)', border: '1px solid var(--border)', borderRadius: 6 }}>
+                  <span style={{ fontSize: '0.65rem', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Agent Profile</span>
+                  {agentIdentity.profile.description && (
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-2)', lineHeight: 1.4 }}>{agentIdentity.profile.description}</div>
+                  )}
+                  {agentIdentity.profile.webUrl && (
+                    <a href={agentIdentity.profile.webUrl} target="_blank" rel="noopener noreferrer"
+                      style={{ fontSize: '0.72rem', color: 'var(--red)', fontWeight: 600, textDecoration: 'none' }}>
+                      {agentIdentity.profile.webUrl} ↗
+                    </a>
+                  )}
+                  {agentIdentity.profile.socialLinks && Object.keys(agentIdentity.profile.socialLinks).length > 0 && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', marginTop: '0.25rem' }}>
+                      {Object.entries(agentIdentity.profile.socialLinks).map(([platform, url]) => (
+                        <a key={platform} href={url} target="_blank" rel="noopener noreferrer"
+                          style={{ fontSize: '0.68rem', color: 'var(--green)', fontWeight: 600, textDecoration: 'none', background: 'var(--green-bg)', border: '1px solid rgba(26,122,74,0.2)', borderRadius: 4, padding: '0.2rem 0.5rem' }}>
+                          {platform} ↗
+                        </a>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 

@@ -84,7 +84,40 @@ GET  /api/a2a/validate?url=https://...       ← A2A card validator
 GET  /api/erc8004/resolve?agent=ghostagent   ← ERC-8004 identity lookup
 GET  /api/erc8004/agent?name=ghostagent      ← Agent metadata
 GET  /api/mcp/probe?url=https://...          ← MCP endpoint probe
-GET  /api/agent-lookup?q=ghostagent          ← Cross-chain agent search
+GET  /api/x402/probe?agent=ghostagent           ← x402 payment capability probe
+GET  /api/x402/probe?url=https://...            ← Direct endpoint x402 probe
+```
+
+### x402 Payment Protocol Support
+
+The oracle includes x402 (HTTP 402 Payment Required) protocol probing capabilities:
+
+| Endpoint | Description |
+|---|---|
+| `GET /api/x402/probe?agent=ghostagent` | Probe agent for x402 payment capabilities, solvency, and micropayment readiness |
+| `GET /api/x402/probe?url=https://...` | Direct endpoint probe for x402 headers and payment requirements |
+
+**x402 Probe Response:**
+```json
+{
+  "type": "agent_probe",
+  "agent": "ghostagent",
+  "x402": {
+    "enabled": true,
+    "micropaymentReady": true,
+    "supportedChains": ["gnosis", "base"],
+    "paymentEndpoints": [...]
+  },
+  "solvency": {
+    "solvent": true,
+    "balance": 12.5,
+    "currency": "xDAI"
+  },
+  "footprint": {
+    "score": 75,
+    "readiness": "ready"
+  }
+}
 ```
 
 ---

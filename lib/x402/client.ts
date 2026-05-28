@@ -238,11 +238,21 @@ export async function checkAgentSolvency(agent: string): Promise<{
   const WORKER_URL = process.env.WORKER_URL || 'https://nftmail-email-worker.richard-159.workers.dev';
   const GNOSIS_RPC = process.env.NEXT_PUBLIC_GNOSIS_RPC || 'https://rpc.gnosischain.com';
   
+  // Normalise: strip TLD and email suffixes so the worker lookup succeeds
+  const agentBase = agent
+    .replace(/_@nftmail\.box$/, '')
+    .replace(/\.molt\.gno$/, '')
+    .replace(/\.openclaw\.gno$/, '')
+    .replace(/\.nftmail\.gno$/, '')
+    .replace(/\.picoclaw\.gno$/, '')
+    .replace(/\.vault\.gno$/, '')
+    .replace(/\.agent\.gno$/, '');
+
   try {
     const identityRes = await fetch(`${WORKER_URL}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'getAgentIdentity', agentName: agent }),
+      body: JSON.stringify({ action: 'getAgentIdentity', agentName: agentBase }),
     });
     
     if (!identityRes.ok) {
@@ -250,13 +260,13 @@ export async function checkAgentSolvency(agent: string): Promise<{
     }
     
     const identity = await identityRes.json();
-    const safeAddress = identity.safe;
+    const safeAddress = identity.safe || identity.safeAddress;
     
     if (!safeAddress) {
       return { solvent: false, balance: 0, currency: 'xDAI', minimumRequired: 1 };
     }
     
-    // Check Safe balance
+    // Check Safe balance — use float division to preserve decimals
     const balanceRes = await fetch(GNOSIS_RPC, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -270,7 +280,10 @@ export async function checkAgentSolvency(agent: string): Promise<{
     
     const balanceData = await balanceRes.json();
     if (balanceData.result) {
-      const balance = Number(BigInt(balanceData.result) / BigInt(10 ** 18));
+      const wei   = BigInt(balanceData.result);
+      const whole = wei / BigInt(10 ** 18);
+      const frac  = Number(wei - whole * BigInt(10 ** 18)) / 1e18;
+      const balance = Math.round((Number(whole) + frac) * 10000) / 10000;
       return {
         solvent: balance >= 1,
         balance,

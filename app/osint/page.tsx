@@ -30,7 +30,29 @@ interface FootprintData {
     mcpServers: string[];
     gnsName: string | null;
     hasX402Capability: boolean;
+    ensSocial?: {
+      ensName: string | null;
+      name: string | null;
+      description: string | null;
+      avatar: string | null;
+      url: string | null;
+      twitter: string | null;
+      github: string | null;
+      email: string | null;
+    } | null;
   };
+  spendProfile?: {
+    balance: number | null;
+    totalSpent24h: number;
+    totalSpent7d: number;
+    dailyBurnRate: number;
+    runwayDays: number | null;
+    livenessStatus: 'active' | 'idle' | 'dormant';
+    healthStatus: string;
+    healthLabel: string;
+    vendorBreakdown: Array<{ vendor: string; spent: number; txCount: number }>;
+    anomalies: Array<{ type: string; description: string; severity: string }>;
+  } | null;
   exposure: {
     hasPublicEndpoints: boolean;
     hasMCPServers: boolean;
@@ -482,6 +504,122 @@ function OSINTDashboardContent() {
                     </div>
                   </div>
                 </div>
+
+                {/* ENS Social */}
+                {footprint.offChain.ensSocial && (
+                  <div style={{ marginTop: '1.5rem', borderTop: '1px solid var(--border)', paddingTop: '1.5rem' }}>
+                    <h3 style={{ marginBottom: '0.75rem', fontSize: '0.875rem', fontWeight: 600, color: 'var(--red)' }}>ENS Social Profile</h3>
+                    <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start' }}>
+                      {footprint.offChain.ensSocial.avatar && (
+                        <img src={footprint.offChain.ensSocial.avatar.startsWith('ipfs://') ? `https://ipfs.io/ipfs/${footprint.offChain.ensSocial.avatar.slice(7)}` : footprint.offChain.ensSocial.avatar} alt="ENS avatar" style={{ width: '48px', height: '48px', borderRadius: '50%', flexShrink: 0, border: '1px solid var(--border)' }} onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                      )}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', fontSize: '0.875rem', flex: 1 }}>
+                        {footprint.offChain.ensSocial.name && (
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span style={{ color: 'var(--muted)' }}>Name</span>
+                            <span style={{ color: 'var(--text)' }}>{footprint.offChain.ensSocial.name}</span>
+                          </div>
+                        )}
+                        {footprint.offChain.ensSocial.description && (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                            <span style={{ color: 'var(--muted)', fontSize: '0.8rem' }}>Bio</span>
+                            <span style={{ color: 'var(--text)', fontSize: '0.8rem', lineHeight: 1.4 }}>{footprint.offChain.ensSocial.description}</span>
+                          </div>
+                        )}
+                        {footprint.offChain.ensSocial.twitter && (
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span style={{ color: 'var(--muted)' }}>Twitter/X</span>
+                            <a href={`https://x.com/${footprint.offChain.ensSocial.twitter.replace('@','')}`} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--red)', textDecoration: 'none' }}>@{footprint.offChain.ensSocial.twitter.replace('@','')}</a>
+                          </div>
+                        )}
+                        {footprint.offChain.ensSocial.github && (
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span style={{ color: 'var(--muted)' }}>GitHub</span>
+                            <a href={`https://github.com/${footprint.offChain.ensSocial.github}`} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--red)', textDecoration: 'none' }}>{footprint.offChain.ensSocial.github}</a>
+                          </div>
+                        )}
+                        {footprint.offChain.ensSocial.url && (
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span style={{ color: 'var(--muted)' }}>Website</span>
+                            <a href={footprint.offChain.ensSocial.url} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--red)', textDecoration: 'none', maxWidth: '55%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{footprint.offChain.ensSocial.url.replace(/^https?:\/\//, '')}</a>
+                          </div>
+                        )}
+                        {footprint.offChain.ensSocial.email && (
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span style={{ color: 'var(--muted)' }}>Email</span>
+                            <span className="mono" style={{ color: 'var(--text)', fontSize: '0.8rem' }}>{footprint.offChain.ensSocial.email}</span>
+                          </div>
+                        )}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.25rem', borderTop: '1px solid var(--border)', paddingTop: '0.25rem' }}>
+                          <span style={{ color: 'var(--muted)', fontSize: '0.75rem' }}>ENS Name</span>
+                          <a href={`https://app.ens.domains/${footprint.offChain.ensSocial.ensName}`} target="_blank" rel="noopener noreferrer" className="mono" style={{ color: 'var(--muted)', fontSize: '0.75rem', textDecoration: 'none' }}>{footprint.offChain.ensSocial.ensName}</a>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* AgentCash Spend Profile */}
+                {footprint.spendProfile && (
+                  <div style={{ marginTop: '1.5rem', borderTop: '1px solid var(--border)', paddingTop: '1.5rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
+                      <h3 style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--red)' }}>AgentCash / Spend</h3>
+                      <span className={`pill ${
+                        footprint.spendProfile.healthStatus === 'healthy' ? 'pill-green' :
+                        footprint.spendProfile.healthStatus === 'critical' ? 'pill-red' :
+                        footprint.spendProfile.healthStatus === 'dormant' ? 'pill-grey' : 'pill-amber'
+                      }`}>{footprint.spendProfile.livenessStatus.toUpperCase()}</span>
+                    </div>
+                    <div style={{ display: 'grid', gap: '1rem', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', fontSize: '0.875rem' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <span style={{ color: 'var(--muted)' }}>Balance</span>
+                          <span style={{ color: 'var(--text)' }}>{footprint.spendProfile.balance !== null ? `${footprint.spendProfile.balance} xDAI` : '—'}</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <span style={{ color: 'var(--muted)' }}>Burn rate (7d avg)</span>
+                          <span style={{ color: 'var(--text)' }}>{footprint.spendProfile.dailyBurnRate > 0 ? `${footprint.spendProfile.dailyBurnRate} xDAI/day` : '—'}</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <span style={{ color: 'var(--muted)' }}>Runway</span>
+                          <span style={{ color: footprint.spendProfile.runwayDays !== null && footprint.spendProfile.runwayDays < 3 ? 'var(--red)' : 'var(--text)' }}>
+                            {footprint.spendProfile.runwayDays !== null ? `${footprint.spendProfile.runwayDays}d` : '—'}
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <span style={{ color: 'var(--muted)' }}>Spent 24h</span>
+                          <span style={{ color: 'var(--text)' }}>{footprint.spendProfile.totalSpent24h > 0 ? `${footprint.spendProfile.totalSpent24h} xDAI` : '—'}</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <span style={{ color: 'var(--muted)' }}>Spent 7d</span>
+                          <span style={{ color: 'var(--text)' }}>{footprint.spendProfile.totalSpent7d > 0 ? `${footprint.spendProfile.totalSpent7d} xDAI` : '—'}</span>
+                        </div>
+                      </div>
+                      {footprint.spendProfile.vendorBreakdown.length > 0 && (
+                        <div>
+                          <p style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem' }}>Top Vendors</p>
+                          {footprint.spendProfile.vendorBreakdown.slice(0, 4).map(v => (
+                            <div key={v.vendor} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: '0.25rem' }}>
+                              <span style={{ color: 'var(--muted)' }}>{v.vendor}</span>
+                              <span style={{ color: 'var(--text)' }}>{v.spent} xDAI ({v.txCount} tx)</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    {footprint.spendProfile.anomalies.length > 0 && (
+                      <div style={{ marginTop: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                        {footprint.spendProfile.anomalies.map((a, i) => (
+                          <div key={i} style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start', fontSize: '0.8rem', padding: '0.4rem 0.6rem', borderRadius: '4px', background: a.severity === 'high' ? 'rgba(239,68,68,0.08)' : a.severity === 'medium' ? 'rgba(245,158,11,0.08)' : 'rgba(255,255,255,0.04)', border: `1px solid ${a.severity === 'high' ? 'rgba(239,68,68,0.2)' : a.severity === 'medium' ? 'rgba(245,158,11,0.2)' : 'var(--border)'}` }}>
+                            <span style={{ color: a.severity === 'high' ? 'var(--red)' : a.severity === 'medium' ? 'var(--amber)' : 'var(--muted)', flexShrink: 0, fontWeight: 600 }}>{a.severity.toUpperCase()}</span>
+                            <span style={{ color: 'var(--text)' }}>{a.description}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <p style={{ marginTop: '0.5rem', fontSize: '0.75rem', color: 'var(--muted)', fontStyle: 'italic' }}>{footprint.spendProfile.healthLabel}</p>
+                  </div>
+                )}
 
                 {/* Exposure summary */}
                 <div style={{ marginTop: '1.5rem', border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: 'var(--bg-alt)', padding: '1rem' }}>

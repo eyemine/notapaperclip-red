@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { monitorAgentSpending } from '../../../services/agentcash-monitor';
 
 const GNOSIS_RPC = process.env.NEXT_PUBLIC_GNOSIS_RPC || 'https://rpc.gnosischain.com';
 const GNOSISSCAN_API = 'https://api.gnosisscan.io/api';
@@ -45,7 +46,29 @@ interface AgentFootprint {
     emailAddress: string | null;
     sandboxEmails: { human: string | null; agent: string | null };
     agentCardUrl: string | null;
+    ensSocial: {
+      name: string | null;
+      description: string | null;
+      avatar: string | null;
+      url: string | null;
+      twitter: string | null;
+      github: string | null;
+      email: string | null;
+      ensName: string | null;
+    } | null;
   };
+  spendProfile: {
+    balance: number | null;
+    totalSpent24h: number;
+    totalSpent7d: number;
+    dailyBurnRate: number;
+    runwayDays: number | null;
+    livenessStatus: 'active' | 'idle' | 'dormant';
+    healthStatus: string;
+    healthLabel: string;
+    vendorBreakdown: Array<{ vendor: string; spent: number; txCount: number }>;
+    anomalies: Array<{ type: string; description: string; severity: string }>;
+  } | null;
   exposure: {
     hasPublicEndpoints: boolean;
     hasMCPServers: boolean;
@@ -244,6 +267,51 @@ async function lookupErc8004Registry(chainKey: string, agentId: number): Promise
   }
 }
 
+// ============== ENS SOCIAL RESOLVER ==============
+
+/**
+ * Fetch ENS text records for a .eth name via ensdata.net (free public API, no key needed).
+ * Returns null if name doesn't resolve or has no records.
+ */
+async function fetchEnsTextViaGateway(ensName: string): Promise<AgentFootprint['offChain']['ensSocial']> {
+  try {
+    // ENS.domains API — free, no key
+    const res = await fetch(`https://ensdata.net/${ensName}`, {
+      headers: { 'Accept': 'application/json' },
+      signal: AbortSignal.timeout(6000),
+    });
+    if (!res.ok) return null;
+    const d = await res.json() as {
+      name?: string;
+      description?: string;
+      avatar?: string;
+      url?: string;
+      'com.twitter'?: string;
+      'com.github'?: string;
+      email?: string;
+      ens?: string;
+      records?: Record<string, string>;
+    };
+    const r = d.records || d;
+    const twitter = (r as any)['com.twitter'] || (r as any)['twitter'] || null;
+    const github = (r as any)['com.github'] || (r as any)['github'] || null;
+    const hasAny = d.name || d.description || d.avatar || d.url || twitter || github || d.email;
+    if (!hasAny) return null;
+    return {
+      ensName,
+      name: d.name || null,
+      description: d.description || null,
+      avatar: d.avatar || null,
+      url: d.url || null,
+      twitter,
+      github,
+      email: d.email || null,
+    };
+  } catch {
+    return null;
+  }
+}
+
 // ============== IMPLEMENTATIONS ==============
 
 async function analyzeFootprint(agent: string): Promise<AgentFootprint> {
@@ -348,13 +416,27 @@ async function analyzeFootprint(agent: string): Promise<AgentFootprint> {
   const emailAddress = identity?.email || identity?.emailAddress || null;
 
   // Sandbox email accounts: human HITL + agent A2A
-  // For BYO molts: chonk.676@nftmail.box (human) + chonk.676_@nftmail.box (agent)
-  // For regular agents: agentname@nftmail.box / agentname_@nftmail.box
+  // Only surface addresses that actually exist in the nftmail.box KV — prevents
+  // fabricated addresses for external agents (e.g. Olas) that have ERC-8004 identities
+  // but no registered inbox.
   const agentNameForEmail = typeof agent === 'string' && !agent.startsWith('erc8004:') && !agent.startsWith('#') ? agent : (identity?.name || null);
-  const sandboxEmails = agentNameForEmail ? {
-    human: `${agentNameForEmail}@nftmail.box`,
-    agent: `${agentNameForEmail}_@nftmail.box`,
-  } : { human: null, agent: null };
+  let sandboxEmails: { human: string | null; agent: string | null } = { human: null, agent: null };
+  if (agentNameForEmail) {
+    try {
+      const resolveRes = await fetch(WORKER_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'resolveAddress', name: agentNameForEmail }),
+      });
+      const resolved = await resolveRes.json() as { exists?: boolean };
+      if (resolved?.exists) {
+        sandboxEmails = {
+          human: `${agentNameForEmail}@nftmail.box`,
+          agent: `${agentNameForEmail}_@nftmail.box`,
+        };
+      }
+    } catch { /* non-fatal — leave as null */ }
+  }
 
   // ─── PHASE 4: Gather on-chain data ───
   let onChainData = {
@@ -371,7 +453,8 @@ async function analyzeFootprint(agent: string): Promise<AgentFootprint> {
   // Safe balance and transaction history
   if (safeAddress) {
     try {
-      const [balanceRes, txRes] = await Promise.all([
+      const gnosisscanKey = process.env.ETHERSCAN_API_KEY || '';
+      const [balanceRes, txRes, safeTxRes] = await Promise.all([
         fetch(GNOSIS_RPC, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -382,21 +465,40 @@ async function analyzeFootprint(agent: string): Promise<AgentFootprint> {
             params: [safeAddress, 'latest'],
           }),
         }),
-        fetch(`${GNOSISSCAN_API}?module=account&action=txlist&address=${safeAddress}&startblock=0&endblock=99999999&sort=asc&apikey=YourApiKeyToken`),
+        gnosisscanKey
+          ? fetch(`${GNOSISSCAN_API}?module=account&action=txlist&address=${safeAddress}&startblock=0&endblock=99999999&sort=asc&apikey=${gnosisscanKey}`, { signal: AbortSignal.timeout(8000) })
+          : Promise.resolve(null),
+        fetch(`https://safe-transaction-gnosis-chain.safe.global/api/v1/safes/${safeAddress}/multisig-transactions/?limit=1&executed=true`, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(6000) }),
       ]);
       
       const balanceData = await balanceRes.json();
       if (balanceData.result) {
-        const xdaiBalance = (BigInt(balanceData.result) / BigInt(10 ** 18)).toString();
+        const wei = BigInt(balanceData.result);
+        const whole = wei / BigInt(10 ** 18);
+        const frac  = Number(wei - whole * BigInt(10 ** 18)) / 1e18;
+        const xdaiBalance = (Number(whole) + frac).toFixed(4);
         onChainData.balances.push({ token: 'xDAI', amount: xdaiBalance });
       }
       
-      const txData = await txRes.json();
-      if (txData.status === '1' && Array.isArray(txData.result)) {
-        onChainData.totalTransactions = txData.result.length;
-        if (txData.result.length > 0) {
-          onChainData.firstSeen = parseInt(txData.result[0].timeStamp);
-          onChainData.lastSeen = parseInt(txData.result[txData.result.length - 1].timeStamp);
+      // Tx count: prefer Gnosisscan (full list) → Safe Transaction Service count header
+      let txCountResolved = false;
+      if (txRes) {
+        const txData = await txRes.json();
+        if (txData.status === '1' && Array.isArray(txData.result)) {
+          onChainData.totalTransactions = txData.result.length;
+          if (txData.result.length > 0) {
+            onChainData.firstSeen = parseInt(txData.result[0].timeStamp);
+            onChainData.lastSeen = parseInt(txData.result[txData.result.length - 1].timeStamp);
+          }
+          txCountResolved = true;
+        }
+      }
+      // Fallback: Safe Transaction Service count (no API key needed)
+      if (!txCountResolved && safeTxRes && safeTxRes.ok) {
+        const safeTxData = await safeTxRes.json() as { count?: number; countUniqueNonce?: number };
+        if (safeTxData.count !== undefined) {
+          onChainData.totalTransactions = safeTxData.count;
+          txCountResolved = true;
         }
       }
     } catch (error) {
@@ -435,7 +537,42 @@ async function analyzeFootprint(agent: string): Promise<AgentFootprint> {
     } catch {}
   }
 
-  // ─── PHASE 5: Exposure & risk assessment ───
+  // ─── PHASE 5: ENS social records + AgentCash spend profile (parallel) ───
+  // Detect ENS molt: identityNft is a .eth name OR tld contains 'eth'
+  const ensNftName: string | null = (() => {
+    const nft = identity?.identityNft;
+    if (!nft) return null;
+    const name = nft.name || nft.label || nft.ensName || '';
+    if (name.endsWith('.eth')) return name;
+    // BYO ENS: agentName + .eth as fallback
+    if (nft.tld === 'eth' || (typeof agent === 'string' && !agent.startsWith('erc8004:') && !agent.startsWith('#'))) {
+      // Check if tld itself is 'eth'
+      if (tld === 'eth' || (tld && tld.endsWith('.eth'))) return tld.endsWith('.eth') ? tld : `${agent}.eth`;
+    }
+    return null;
+  })();
+
+  const [ensSocial, spendProfileRaw] = await Promise.all([
+    ensNftName ? fetchEnsTextViaGateway(ensNftName) : Promise.resolve(null),
+    (typeof agent === 'string' && !agent.startsWith('erc8004:') && !agent.startsWith('#'))
+      ? monitorAgentSpending(agent).catch(() => null)
+      : Promise.resolve(null),
+  ]);
+
+  const spendProfile = spendProfileRaw ? {
+    balance: spendProfileRaw.balance,
+    totalSpent24h: spendProfileRaw.totalSpent24h,
+    totalSpent7d: spendProfileRaw.totalSpent7d,
+    dailyBurnRate: spendProfileRaw.dailyBurnRate,
+    runwayDays: spendProfileRaw.runwayDays,
+    livenessStatus: spendProfileRaw.livenessStatus,
+    healthStatus: spendProfileRaw.healthStatus,
+    healthLabel: spendProfileRaw.healthLabel,
+    vendorBreakdown: spendProfileRaw.vendorBreakdown.map(v => ({ vendor: v.vendor, spent: v.spent, txCount: v.txCount })),
+    anomalies: spendProfileRaw.anomalies.map(a => ({ type: a.type, description: a.description, severity: a.severity })),
+  } : null;
+
+  // ─── PHASE 6: Exposure & risk assessment ───
   const KNOWN_TLDS = ['molt', 'nftmail', 'openclaw', 'picoclaw', 'vault', 'agent'];
   const hasX402Capability = !!(tldBase && KNOWN_TLDS.includes(tldBase));
   const hasPublicEndpoints = mcpServers.length > 0;
@@ -460,7 +597,9 @@ async function analyzeFootprint(agent: string): Promise<AgentFootprint> {
       emailAddress,
       sandboxEmails,
       agentCardUrl,
+      ensSocial: ensSocial ?? null,
     },
+    spendProfile,
     exposure: {
       hasPublicEndpoints,
       hasMCPServers: hasPublicEndpoints,
