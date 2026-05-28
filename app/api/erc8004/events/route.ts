@@ -1,10 +1,11 @@
 /**
- * GET /api/erc8004/events?chain=gnosis|basemainnet|basesepolia|all&limit=50&agentId=
+ * GET /api/erc8004/events?chain=gnosis|basemainnet|basesepolia|ethereum|all&limit=50&agentId=
  *
  * Polls ERC-8004 registry contracts for recent events via JSON-RPC getLogs.
  * No WebSocket needed — HTTP polling only.
  *
  * Contracts:
+ *   Ethereum mainnet (1):     0x8004A169FB4a3325136EB29fA0ceB6D2e539a432
  *   Gnosis mainnet  (100):   0x8004A169FB4a3325136EB29fA0ceB6D2e539a432
  *   Base Mainnet    (8453):  0x8004A169FB4a3325136EB29fA0ceB6D2e539a432  (Synthesis hackathon)
  *   Base Sepolia    (84532): 0x8004A818BFB912233c491871b3d84c89A494BD9e
@@ -13,6 +14,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 const CONTRACTS: Record<string, { rpcs: string[]; address: string; chain: string; chainId: number }> = {
+  ethereum: {
+    rpcs:    ['https://eth.llamarpc.com', 'https://ethereum.publicnode.com', 'https://eth.drpc.org'],
+    address: '0x8004A169FB4a3325136EB29fA0ceB6D2e539a432',
+    chain:   'Ethereum',
+    chainId: 1,
+  },
   gnosis: {
     rpcs:    ['https://rpc.gnosischain.com', 'https://gnosis-rpc.publicnode.com', 'https://gnosis.drpc.org'],
     address: '0x8004A169FB4a3325136EB29fA0ceB6D2e539a432',

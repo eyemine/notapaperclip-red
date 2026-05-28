@@ -25,7 +25,7 @@ interface AgentIdentity {
   principal: string | null;
   safe: string | null;
   storyIp: string | null;
-  erc8004: { gnosis?: Erc8004Chain; base?: Erc8004Chain; baseSepolia?: Erc8004Chain };
+  erc8004: { ethereum?: Erc8004Chain; gnosis?: Erc8004Chain; base?: Erc8004Chain; baseSepolia?: Erc8004Chain };
   profile: AgentProfile | null;
   links: { profile: string; agentCard: string; a2aCard: string; registry: string };
 }
@@ -51,12 +51,14 @@ interface FeedResult {
 const GHOSTAGENT_LOOKUP = '/api/handshake';
 
 const CHAIN_DOT: Record<string, string> = {
+  'Ethereum':     '#627eea',
   'Gnosis':       '#1a7a4a',
   'Base':         '#0052ff',
   'Base Sepolia': '#6b8cff',
 };
 
 const EXPLORER: Record<number, string> = {
+  1:     'https://etherscan.io/tx/',
   100:   'https://gnosisscan.io/tx/',
   8453:  'https://basescan.org/tx/',
   84532: 'https://sepolia.basescan.org/tx/',
@@ -65,7 +67,7 @@ const EXPLORER: Record<number, string> = {
 function Erc8004FeedInner() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const [chain, setChain]         = useState<'all' | 'gnosis' | 'basemainnet' | 'basesepolia'>(() => (searchParams.get('chain') as any) || 'all');
+  const [chain, setChain]         = useState<'all' | 'ethereum' | 'gnosis' | 'basemainnet' | 'basesepolia'>(() => (searchParams.get('chain') as any) || 'all');
   const [agentFilter, setFilter]  = useState(() => searchParams.get('agent') ?? '');
   const [resolvedId, setResolved]         = useState<string | null>(null);
   const [resolvedName, setResolvedName]   = useState<string | null>(null);
@@ -204,6 +206,8 @@ function Erc8004FeedInner() {
         <h1>ERC-8004 Feed</h1>
         <p>
           Live event log from ERC-8004 agent identity registries on{' '}
+          <a href="https://etherscan.io/token/0x8004A169FB4a3325136EB29fA0ceB6D2e539a432" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--red)', textDecoration: 'none', fontWeight: 600 }}>Ethereum ↗</a>
+          {', '}
           <a href="https://gnosisscan.io/token/0x8004A169FB4a3325136EB29fA0ceB6D2e539a432" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--red)', textDecoration: 'none', fontWeight: 600 }}>Gnosis ↗</a>
           {', '}
           <a href="https://basescan.org/address/0x8004A169FB4a3325136EB29fA0ceB6D2e539a432" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--red)', textDecoration: 'none', fontWeight: 600 }}>Base ↗</a>
@@ -221,12 +225,12 @@ function Erc8004FeedInner() {
 
       {/* Filters bar */}
       <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.75rem', alignItems: 'center' }}>
-        {(['all', 'gnosis', 'basemainnet', 'basesepolia'] as const).map(c => (
+        {(['all', 'ethereum', 'gnosis', 'basemainnet', 'basesepolia'] as const).map(c => (
           <button key={c}
             onClick={() => setChain(c)}
             className={chain === c ? 'btn-primary' : 'btn-secondary'}
             style={{ fontSize: '0.75rem', padding: '0.35rem 0.75rem', borderRadius: 99 }}>
-            {c === 'all' ? 'All chains' : c === 'gnosis' ? 'Gnosis' : c === 'basemainnet' ? 'Base' : 'Base Sepolia'}
+            {c === 'all' ? 'All chains' : c === 'ethereum' ? 'Ethereum' : c === 'gnosis' ? 'Gnosis' : c === 'basemainnet' ? 'Base' : 'Base Sepolia'}
           </button>
         ))}
         <input
@@ -329,6 +333,9 @@ function Erc8004FeedInner() {
                 <div>
                   <div style={{ color: 'var(--muted)', fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 2 }}>ERC-8004</div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    {agentIdentity?.erc8004?.ethereum && (
+                      <a href={`https://8004agents.ai/ethereum/agent/${agentIdentity.erc8004.ethereum.agentId}#metadata`} target="_blank" rel="noopener noreferrer" style={{ color: '#627eea', fontWeight: 600, textDecoration: 'none' }}>Ethereum #{agentIdentity.erc8004.ethereum.agentId} ↗</a>
+                    )}
                     {agentIdentity?.erc8004?.gnosis && (
                       <a href={`https://8004agents.ai/gnosis/agent/${agentIdentity.erc8004.gnosis.agentId}#metadata`} target="_blank" rel="noopener noreferrer" style={{ color: '#1a7a4a', fontWeight: 600, textDecoration: 'none' }}>Gnosis #{agentIdentity.erc8004.gnosis.agentId} ↗</a>
                     )}

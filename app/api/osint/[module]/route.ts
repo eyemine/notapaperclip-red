@@ -10,6 +10,7 @@ const ERC8004_REGISTRY = '0x8004A169FB4a3325136EB29fA0ceB6D2e539a432';
 
 // ERC-8004 supported chains for universal agent lookup
 const ERC8004_CHAINS: Record<string, { name: string; rpc: string; chainId: number }> = {
+  ethereum: { name: 'Ethereum', rpc: 'https://eth.llamarpc.com', chainId: 1 },
   gnosis: { name: 'Gnosis', rpc: 'https://rpc.gnosischain.com', chainId: 100 },
   base: { name: 'Base', rpc: 'https://mainnet.base.org', chainId: 8453 },
   'base-sepolia': { name: 'Base Sepolia', rpc: 'https://sepolia.base.org', chainId: 84532 },
@@ -410,8 +411,11 @@ async function analyzeFootprint(agent: string): Promise<AgentFootprint> {
   const agentCardUrl = identity?.links?.agentCard || identity?.agentCardUrl || null;
   const mcpServers: string[] = identity?.mcpServers || [];
   // GNS name = the registered .gno name (e.g. ghostagent.molt.gno)
-  // The tld field IS the GNS record — genome in Gnosis ecosystem = GNS identity
-  const gnsName = tld ? `${typeof agent === 'string' && !agent.startsWith('erc8004:') ? agent : (identity?.name || 'agent')}.${tld}` : null;
+  // Only construct if we have a valid tld and agent name from identity
+  // Otherwise return null to avoid showing fabricated names
+  const gnsName = (tld && identity?.name && !agent.startsWith('erc8004:') && !agent.startsWith('#'))
+    ? `${identity.name}.${tld}`
+    : null;
   const genomeUrl = identity?.genomeUrl || identity?.links?.genome || null; // kept for compat
   const emailAddress = identity?.email || identity?.emailAddress || null;
 
@@ -581,13 +585,17 @@ async function analyzeFootprint(agent: string): Promise<AgentFootprint> {
   if (!safeAddress && !tbaAddress) riskLevel = 'high';
   else if (onChainData.balances.length === 0 || parseFloat(onChainData.balances[0]?.amount || '0') < 1) riskLevel = 'medium';
 
+  // Normalize tier: Lite → Pro
+  const tierRaw = identity?.accountTier || identity?.tier || 'unknown';
+  const tier = tierRaw === 'Lite' ? 'Pro' : tierRaw;
+
   return {
     agent,
     dataSource,
     onChain: onChainData,
     offChain: {
       tld: tld || 'unknown',
-      tier: identity?.accountTier || identity?.tier || 'unknown',
+      tier,
       principal: identity?.principal || null,
       totalXdaiBurned: identity?.totalXdaiBurned || 0,
       surgeScore: identity?.surgeReputationScore || 0,

@@ -10,6 +10,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 const CHAINS: Record<string, { label: string; chainId: number; registry: string; rpc: string; explorer: string }> = {
+  ethereum: {
+    label:    'Ethereum',
+    chainId:  1,
+    registry: '0x8004A169FB4a3325136EB29fA0ceB6D2e539a432',
+    rpc:      'https://eth.llamarpc.com',
+    explorer: 'https://etherscan.io',
+  },
   gnosis: {
     label:    'Gnosis',
     chainId:  100,

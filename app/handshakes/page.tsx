@@ -73,6 +73,7 @@ function outcomeClass(tag: string) {
 }
 
 const CHAINS = [
+  { key: 'ethereum',    label: 'Ethereum',     chainId: 1,     explorer: 'https://etherscan.io/tx/' },
   { key: 'gnosis',      label: 'Gnosis',       chainId: 100,   explorer: 'https://gnosisscan.io/tx/' },
   { key: 'base',        label: 'Base',         chainId: 8453,  explorer: 'https://basescan.org/tx/' },
   { key: 'baseSepolia', label: 'Base Sepolia', chainId: 84532, explorer: 'https://sepolia.basescan.org/tx/' },
@@ -98,7 +99,7 @@ function HandshakesPageInner() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const [mode, setMode]           = useState<LookupMode>(() => (searchParams.get('mode') as LookupMode) || 'token');
-  const [chain, setChain]         = useState(() => searchParams.get('chain') || 'gnosis');
+  const [chain, setChain]         = useState(() => searchParams.get('chain') || 'ethereum');
   const [query, setQuery]         = useState(() => searchParams.get('q') || '');
   const [loading, setLoading]     = useState(false);
   const [error, setError]         = useState('');
