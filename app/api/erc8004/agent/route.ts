@@ -14,7 +14,7 @@ const CHAINS: Record<string, { label: string; chainId: number; registry: string;
     label:    'Ethereum',
     chainId:  1,
     registry: '0x8004A169FB4a3325136EB29fA0ceB6D2e539a432',
-    rpc:      'https://eth.llamarpc.com',
+    rpc:      'https://ethereum-rpc.publicnode.com',
     explorer: 'https://etherscan.io',
   },
   gnosis: {
