@@ -263,6 +263,24 @@ async function lookupErc8004Registry(chainKey: string, agentId: number): Promise
       if (cardRes.ok) {
         const parsed = await cardRes.json();
         card = { ...card, ...parsed };
+
+        // Extract A2A endpoint from services array (Normies format)
+        if (parsed.services && Array.isArray(parsed.services)) {
+          const a2aService = parsed.services.find((s: any) => s.name === 'A2A');
+          if (a2aService && a2aService.endpoint) {
+            card.links = { ...card.links, a2aCard: a2aService.endpoint };
+          }
+        }
+
+        // Extract skills from agent card (Normies format)
+        if (parsed.skills && Array.isArray(parsed.skills)) {
+          card.skills = parsed.skills;
+        }
+
+        // Extract x402 support flag
+        if (parsed.x402Support !== undefined) {
+          card.x402Support = parsed.x402Support;
+        }
       }
     } catch {}
 
@@ -352,35 +370,44 @@ async function analyzeFootprint(agent: string, chain?: string): Promise<AgentFoo
         erc8004: { [erc8004Parsed.chain]: { agentId: erc8004Parsed.agentId, agentURI: card.agentURI } },
         email: card.email || null,
         name: card.name || `agent#${erc8004Parsed.agentId}`,
+        // Preserve Normies-specific fields
+        skills: card.skills || null,
+        x402Support: card.x402Support !== undefined ? card.x402Support : null,
+        description: card.description || null,
+        image: card.image || null,
       };
       dataSource = 'erc8004-registry';
     }
   }
 
-  // ─── PHASE 1: ghostagent.ninja agent-lookup — always try for TBA even if Phase 0 set identity ───
-  try {
-    const lookupRes = await fetch(`${GHOSTAGENT_LOOKUP_URL}?q=${encodeURIComponent(agent)}`, {
-      method: 'GET',
-      headers: { 'Accept': 'application/json' },
-      signal: AbortSignal.timeout(6000),
-    });
-    if (lookupRes.ok) {
-      const lookupData = await lookupRes.json();
-      if (lookupData.exists) {
-        if (!identity) {
-          identity = lookupData;
-          dataSource = 'ghostagent-api';
+  // ─── PHASE 1: ghostagent.ninja agent-lookup — only for ecosystem agents, don't overwrite ERC-8004 data ───
+  // Skip if we already have identity from ERC-8004 registry (external agents like Normies)
+  if (!identity || dataSource !== 'erc8004-registry') {
+    try {
+      const lookupRes = await fetch(`${GHOSTAGENT_LOOKUP_URL}?q=${encodeURIComponent(agent)}`, {
+        method: 'GET',
+        headers: { 'Accept': 'application/json' },
+        signal: AbortSignal.timeout(6000),
+      });
+      if (lookupRes.ok) {
+        const lookupData = await lookupRes.json();
+        if (lookupData.exists) {
+          if (!identity) {
+            identity = lookupData;
+            dataSource = 'ghostagent-api';
+          }
+          // Always take TBA from ghostagent API — it does on-chain derivation
+          tbaAddress = lookupData.tbaAddress || tbaAddress;
         }
-        // Always take TBA from ghostagent API — it does on-chain derivation
-        tbaAddress = lookupData.tbaAddress || tbaAddress;
       }
+    } catch {
+      // non-fatal
     }
-  } catch {
-    // non-fatal
   }
 
   // ─── PHASE 2: Fallback to worker KV if ghostagent API didn't return data ───
-  if (!identity && !erc8004Parsed) {
+  // Skip if we already have identity from ERC-8004 registry (external agents like Normies)
+  if (!identity && dataSource !== 'erc8004-registry') {
     try {
       const identityRes = await fetch(`${WORKER_URL}`, {
         method: 'POST',
