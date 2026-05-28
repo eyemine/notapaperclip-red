@@ -691,6 +691,7 @@ async function analyzeFootprint(agent: string, chain?: string): Promise<AgentFoo
     const explorerBase = EXPLORERS[erc8004Card.chain] || EXPLORERS['ethereum'];
 
     // Check for paired ecosystem agent via owner address → listAgents
+    // Only pair if the agent's ERC-8004 registration matches the current chain and agentId
     let pairedAgent: { name: string; chain: string; agentId: number } | null = null;
     if (erc8004Card.owner) {
       try {
@@ -705,7 +706,8 @@ async function analyzeFootprint(agent: string, chain?: string): Promise<AgentFoo
           for (const a of (data.agents || [])) {
             if (a.erc8004) {
               for (const [c, info] of Object.entries(a.erc8004) as [string, any][]) {
-                if (info?.agentId) {
+                // Only pair if chain and agentId match the current ERC-8004 token
+                if (info?.agentId && c === erc8004Card.chain && info.agentId === erc8004Card.agentId) {
                   pairedAgent = { name: a.name, chain: c, agentId: info.agentId };
                   break;
                 }

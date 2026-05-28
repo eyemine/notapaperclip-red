@@ -74,10 +74,10 @@ function outcomeClass(tag: string) {
 }
 
 const CHAINS = [
-  { key: 'ethereum',    label: 'Ethereum',     chainId: 1,     explorer: 'https://etherscan.io/tx/' },
-  { key: 'gnosis',      label: 'Gnosis',       chainId: 100,   explorer: 'https://gnosisscan.io/tx/' },
   { key: 'base',        label: 'Base',         chainId: 8453,  explorer: 'https://basescan.org/tx/' },
   { key: 'baseSepolia', label: 'Base Sepolia', chainId: 84532, explorer: 'https://sepolia.basescan.org/tx/' },
+  { key: 'ethereum',    label: 'Ethereum',     chainId: 1,     explorer: 'https://etherscan.io/tx/' },
+  { key: 'gnosis',      label: 'Gnosis',       chainId: 100,   explorer: 'https://gnosisscan.io/tx/' },
 ];
 
 interface OnChainAgent {
@@ -354,15 +354,15 @@ function HandshakesPageInner() {
         {(
           [
             { key: 'token', label: 'By ERC-8004 Token ID' },
-            { key: 'cert',  label: 'By Cert Hash' },
-            { key: 'email', label: 'By NFTmail Address' },
             { key: 'agent', label: 'By Agent Name' },
+            { key: 'email', label: 'By NFTmail Address' },
+            { key: 'cert',  label: 'By Cert Hash' },
           ] as { key: LookupMode; label: string }[]
         ).map(({ key, label }) => (
           <button key={key}
             className={mode === key ? 'btn-primary' : 'btn-secondary'}
             style={{ fontSize: '0.8rem', padding: '0.4rem 0.875rem' }}
-            onClick={() => { setMode(key); setHandshakes([]); setSingle(null); setResolved(null); setOnChainAgent(null); setError(''); setQuery(''); }}
+            onClick={() => { setMode(key); setHandshakes([]); setSingle(null); setResolved(null); setOnChainAgent(null); setErc8004Card(null); setError(''); setQuery(''); }}
           >
             {label}
           </button>
@@ -376,7 +376,7 @@ function HandshakesPageInner() {
             <button key={c.key}
               className={chain === c.key ? 'btn-primary' : 'btn-secondary'}
               style={{ fontSize: '0.72rem', padding: '0.25rem 0.75rem', borderRadius: 99 }}
-              onClick={() => setChain(c.key)}
+              onClick={() => { setChain(c.key); setErc8004Card(null); }}
             >
               {c.label}
             </button>
