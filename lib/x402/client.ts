@@ -135,7 +135,7 @@ export async function probeX402Endpoint(url: string): Promise<X402ProbeResult> {
 /**
  * Probe an agent for x402 capabilities
  */
-export async function probeAgentX402(agent: string, endpoints?: string[]): Promise<AgentX402Profile> {
+export async function probeAgentX402(agent: string, endpoints?: string[], chain?: string): Promise<AgentX402Profile> {
   const WORKER_URL = process.env.WORKER_URL || 'https://nftmail-email-worker.richard-159.workers.dev';
   
   // Determine origin for internal API calls (works in both dev and production)
@@ -229,7 +229,7 @@ export async function probeAgentX402(agent: string, endpoints?: string[]): Promi
 /**
  * Check agent solvency (mock - would check Safe balance)
  */
-export async function checkAgentSolvency(agent: string): Promise<{
+export async function checkAgentSolvency(agent: string, chain?: string): Promise<{
   solvent: boolean;
   balance: number | null;
   currency: string;
@@ -302,7 +302,7 @@ export async function checkAgentSolvency(agent: string): Promise<{
 /**
  * Analyze agent's x402 footprint
  */
-export async function analyzeX402Footprint(agent: string): Promise<{
+export async function analyzeX402Footprint(agent: string, chain?: string): Promise<{
   footprintScore: number;
   paymentEndpoints: number;
   supportedChains: number;
@@ -310,16 +310,17 @@ export async function analyzeX402Footprint(agent: string): Promise<{
   overallReadiness: 'ready' | 'partial' | 'not_ready';
 }> {
   const [x402Profile, solvency] = await Promise.all([
-    probeAgentX402(agent),
-    checkAgentSolvency(agent),
+    probeAgentX402(agent, undefined, chain),
+    checkAgentSolvency(agent, chain),
   ]);
   
   const activeEndpoints = x402Profile.paymentEndpoints.filter(e => e.supportsX402).length;
-  
-  // A Safe address on Gnosis IS a valid x402 payment destination (direct xDAI transfer).
+
+  // A Safe address IS a valid x402 payment destination (direct transfer).
   // Agents don't need public MCP endpoints to accept micropayments.
   const hasSafeWallet = solvency.balance !== null; // balance query succeeded → Safe exists
-  const impliedChains = hasSafeWallet ? ['gnosis'] : [];
+  // Use provided chain parameter if available, otherwise default to gnosis for Safe wallets
+  const impliedChains = hasSafeWallet ? (chain ? [chain] : ['gnosis']) : [];
   const detectedChains = x402Profile.supportedChains.length > 0
     ? x402Profile.supportedChains
     : impliedChains;

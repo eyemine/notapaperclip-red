@@ -325,12 +325,19 @@ async function analyzeFootprint(agent: string): Promise<AgentFootprint> {
   if (erc8004Parsed) {
     const card = await lookupErc8004Registry(erc8004Parsed.chain, erc8004Parsed.agentId);
     if (card) {
+      // Only use TLD from card if it's one of our known ecosystem TLDs
+      // External agents (like Ethereum normies) shouldn't show fabricated TLDs
+      const KNOWN_TLDS = ['molt', 'nftmail', 'openclaw', 'picoclaw', 'vault', 'agent'];
+      const cardTld = card.tld || null;
+      const tldBase = cardTld ? cardTld.replace(/\.gno$/, '') : null;
+      const validTld = (tldBase && KNOWN_TLDS.includes(tldBase)) ? cardTld : null;
+
       identity = {
         exists: true,
         safe: card.safe || card.safeAddress || null,
         tbaAddress: null,
         identityNft: null,
-        tld: card.tld || null,
+        tld: validTld,
         links: { agentCard: card.agentURI || null, ...(card.links || {}) },
         mcpServers: card.mcpServers || card.tools?.map((t: any) => t.url).filter(Boolean) || [],
         genomeUrl: card.genomeUrl || null,
@@ -594,7 +601,7 @@ async function analyzeFootprint(agent: string): Promise<AgentFootprint> {
     dataSource,
     onChain: onChainData,
     offChain: {
-      tld: tld || 'unknown',
+      tld: tld || null,
       tier,
       principal: identity?.principal || null,
       totalXdaiBurned: identity?.totalXdaiBurned || 0,

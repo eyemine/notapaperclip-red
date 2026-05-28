@@ -10,11 +10,12 @@ import { probeX402Endpoint, probeAgentX402, checkAgentSolvency, analyzeX402Footp
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
-  
+
   // Support multiple query patterns
   const agent = searchParams.get('agent');
   const target = searchParams.get('target');
-  
+  const chain = searchParams.get('chain'); // Chain parameter for ERC-8004 agents
+
   try {
     // URL-based probe (direct endpoint testing)
     const targetUrl = searchParams.get('url');
@@ -35,7 +36,7 @@ export async function GET(request: NextRequest) {
         timestamp: new Date().toISOString(),
       });
     }
-    
+
     // Agent-based probe (comprehensive x402 profile)
     const agentName = agent || target;
     if (!agentName) {
@@ -44,24 +45,24 @@ export async function GET(request: NextRequest) {
         { status: 400 }
       );
     }
-    
+
     // Run comprehensive x402 analysis
     const [x402Profile, solvency, footprint] = await Promise.all([
-      probeAgentX402(agentName),
-      checkAgentSolvency(agentName),
-      analyzeX402Footprint(agentName),
+      probeAgentX402(agentName, undefined, chain || undefined),
+      checkAgentSolvency(agentName, chain || undefined),
+      analyzeX402Footprint(agentName, chain || undefined),
     ]);
-    
-    // An agent with a funded Safe can receive direct-transfer x402 payments on Gnosis.
+
+    // An agent with a funded Safe can receive direct-transfer x402 payments.
     // x402 "enabled" = has any payment destination (Safe or HTTP endpoint).
     const hasSafeDestination = solvency.balance !== null;
     const x402Enabled = x402Profile.x402Support || hasSafeDestination;
     // Micropayment ready = solvent Safe (can send/receive) OR endpoint with small min-amount
     const micropaymentReady = solvency.solvent || x402Profile.micropaymentReady;
-    // Chains: detected from endpoints, or implied by Safe on Gnosis
+    // Chains: detected from endpoints, or use provided chain parameter, or implied by Safe
     const supportedChains = x402Profile.supportedChains.length > 0
       ? x402Profile.supportedChains
-      : (hasSafeDestination ? ['gnosis'] : []);
+      : (chain ? [chain] : (hasSafeDestination ? ['gnosis'] : []));
 
     return NextResponse.json({
       type: 'agent_probe',
@@ -87,7 +88,7 @@ export async function GET(request: NextRequest) {
       },
       timestamp: x402Profile.timestamp,
     });
-    
+
   } catch (error: any) {
     console.error('x402 probe error:', error);
     return NextResponse.json(
