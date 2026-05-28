@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, Suspense } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 
 interface ChainEvent {
@@ -64,7 +64,8 @@ const EXPLORER: Record<number, string> = {
 
 function Erc8004FeedInner() {
   const searchParams = useSearchParams();
-  const [chain, setChain]         = useState<'all' | 'gnosis' | 'basemainnet' | 'basesepolia'>('all');
+  const router = useRouter();
+  const [chain, setChain]         = useState<'all' | 'gnosis' | 'basemainnet' | 'basesepolia'>(() => (searchParams.get('chain') as any) || 'all');
   const [agentFilter, setFilter]  = useState(() => searchParams.get('agent') ?? '');
   const [resolvedId, setResolved]         = useState<string | null>(null);
   const [resolvedName, setResolvedName]   = useState<string | null>(null);
@@ -74,6 +75,15 @@ function Erc8004FeedInner() {
   const [data, setData]               = useState<FeedResult | null>(null);
   const [loading, setLoading]         = useState(true);
   const [lastRefresh, setRefresh]     = useState(0);
+
+  // Sync URL params with state
+  useEffect(() => {
+    const params = new URLSearchParams();
+    if (chain && chain !== 'all') params.set('chain', chain);
+    if (agentFilter) params.set('agent', agentFilter);
+    const newUrl = `?${params.toString()}`;
+    router.replace(newUrl);
+  }, [chain, agentFilter, router]);
 
   async function resolveFilter(raw: string): Promise<string> {
     const v = raw.trim();

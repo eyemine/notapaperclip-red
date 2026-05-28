@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, Suspense } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
 
 const GHOSTAGENT_API    = '/api/handshake';
 const GHOSTAGENT_LOOKUP = '/api/handshake';
@@ -93,16 +94,36 @@ interface OnChainAgent {
   error?:      string;
 }
 
-export default function HandshakesPage() {
-  const [mode, setMode]           = useState<LookupMode>('token');
-  const [chain, setChain]         = useState('gnosis');
-  const [query, setQuery]         = useState('');
+function HandshakesPageInner() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const [mode, setMode]           = useState<LookupMode>(() => (searchParams.get('mode') as LookupMode) || 'token');
+  const [chain, setChain]         = useState(() => searchParams.get('chain') || 'gnosis');
+  const [query, setQuery]         = useState(() => searchParams.get('q') || '');
   const [loading, setLoading]     = useState(false);
   const [error, setError]         = useState('');
   const [resolved, setResolved]   = useState<ResolvedAgent | null>(null);
   const [onChainAgent, setOnChainAgent] = useState<OnChainAgent | null>(null);
   const [handshakes, setHandshakes] = useState<StoredHandshake[]>([]);
   const [single, setSingle]       = useState<StoredHandshake | null>(null);
+
+  // Sync URL params with state
+  useEffect(() => {
+    const params = new URLSearchParams();
+    if (mode) params.set('mode', mode);
+    if (chain) params.set('chain', chain);
+    if (query) params.set('q', query);
+    const newUrl = `?${params.toString()}`;
+    router.replace(newUrl);
+  }, [mode, chain, query, router]);
+
+  // Auto-trigger lookup if query is present on load
+  useEffect(() => {
+    if (query && !loading && !error && handshakes.length === 0 && !single) {
+      lookup();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   /**
    * Parses the raw query and returns a canonical agentId string (or null).
@@ -736,5 +757,13 @@ export default function HandshakesPage() {
         notapaperclip.red
       </footer>
     </div>
+  );
+}
+
+export default function HandshakesPage() {
+  return (
+    <Suspense fallback={<div className="page-wrap" style={{ textAlign: 'center', paddingTop: '4rem', color: 'var(--muted)' }}>Loading…</div>}>
+      <HandshakesPageInner />
+    </Suspense>
   );
 }
