@@ -137,33 +137,40 @@ export async function probeX402Endpoint(url: string): Promise<X402ProbeResult> {
  */
 export async function probeAgentX402(agent: string, endpoints?: string[], chain?: string): Promise<AgentX402Profile> {
   const WORKER_URL = process.env.WORKER_URL || 'https://nftmail-email-worker.richard-159.workers.dev';
-  
+
   // Determine origin for internal API calls (works in both dev and production)
   const SITE_ORIGIN = process.env.NEXT_PUBLIC_SITE_URL || process.env.URL || 'https://notapaperclip.red';
-  
-  // Get agent identity to find endpoints
-  const identityRes = await fetch(`${WORKER_URL}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'getAgentIdentity', agentName: agent }),
-  });
-  
+
+  // Handle ERC-8004 token format: #agentId or erc8004:chain:agentId
+  // For x402 probing, we need to skip worker lookup for external ERC-8004 agents
+  // since they won't have entries in our worker KV
+  const isErc8004Token = agent.startsWith('#') || agent.startsWith('erc8004:');
+
   let mcpEndpoints: string[] = endpoints || [];
   let agentCardUrl: string | null = null;
-  
-  if (identityRes.ok) {
-    const identity = await identityRes.json();
-    // Use MCP servers as potential x402 endpoints
-    if (identity.mcpServers && Array.isArray(identity.mcpServers)) {
-      mcpEndpoints = [...mcpEndpoints, ...identity.mcpServers];
+
+  if (!isErc8004Token) {
+    // Get agent identity to find endpoints (only for non-ERC-8004 agents)
+    const identityRes = await fetch(`${WORKER_URL}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'getAgentIdentity', agentName: agent }),
+    });
+
+    if (identityRes.ok) {
+      const identity = await identityRes.json();
+      // Use MCP servers as potential x402 endpoints
+      if (identity.mcpServers && Array.isArray(identity.mcpServers)) {
+        mcpEndpoints = [...mcpEndpoints, ...identity.mcpServers];
+      }
+      // Use actual agent card URL from worker (not a constructed .gno domain)
+      agentCardUrl = identity.links?.agentCard || null;
     }
-    // Use actual agent card URL from worker (not a constructed .gno domain)
-    agentCardUrl = identity.links?.agentCard || null;
   }
-  
+
   // Only probe actual agent-owned endpoints from their agent card / MCP servers
   // notapaperclip.red gateway is an analysis proxy, not the agent's own payment endpoint
-  
+
   // Probe all endpoints
   const endpointResults = await Promise.all(
     mcpEndpoints.map(async (url) => {
@@ -177,40 +184,40 @@ export async function probeAgentX402(agent: string, endpoints?: string[], chain?
       };
     })
   );
-  
+
   // Probe agent card if available
   let agentCardX402: X402ProbeResult | null = null;
   if (agentCardUrl) {
     agentCardX402 = await probeX402Endpoint(agentCardUrl);
   }
-  
+
   // Aggregate results
   const supportedEndpoints = endpointResults.filter(e => e.supportsX402);
   const allMethods = [...new Set(supportedEndpoints.flatMap(e => e.methods))];
-  
+
   // Extract chains from x402 headers (X-Payment-Chain) and payment methods
   const chainCandidates = [...allMethods];
   for (const ep of supportedEndpoints) {
     // The gateway returns chains in the payment info
     if (ep.destinationAddress) chainCandidates.push('gnosis');
   }
-  const chains = [...new Set(chainCandidates.filter(m => 
+  const chains = [...new Set(chainCandidates.filter(m =>
     ['ethereum', 'solana', 'base', 'gnosis', 'polygon'].includes(m.toLowerCase())
   ))];
-  
+
   // Calculate economic metrics (mock for now - would query on-chain)
   const economicActivity = {
     averagePaymentSize: null as number | null,
     successRate: null as number | null,
     totalTransactions: null as number | null,
   };
-  
+
   // Check if micropayment ready (supports small amounts ≤ 0.01)
   const micropaymentReady = supportedEndpoints.some(e => {
     const minAmount = parseFloat(e.minAmount || '0');
     return minAmount > 0 && minAmount <= 0.01;
   });
-  
+
   return {
     agent,
     x402Support: supportedEndpoints.length > 0 || (agentCardX402?.x402Enabled ?? false),
@@ -236,8 +243,19 @@ export async function checkAgentSolvency(agent: string, chain?: string): Promise
   minimumRequired: number;
 }> {
   const WORKER_URL = process.env.WORKER_URL || 'https://nftmail-email-worker.richard-159.workers.dev';
-  const GNOSIS_RPC = process.env.NEXT_PUBLIC_GNOSIS_RPC || 'https://rpc.gnosischain.com';
-  
+
+  // Chain-specific RPCs
+  const CHAIN_RPCS: Record<string, string> = {
+    ethereum: 'https://eth.llamarpc.com',
+    gnosis: process.env.NEXT_PUBLIC_GNOSIS_RPC || 'https://rpc.gnosischain.com',
+    base: 'https://mainnet.base.org',
+    'base-sepolia': 'https://sepolia.base.org',
+  };
+
+  // Determine RPC and currency based on chain
+  const rpc = chain && CHAIN_RPCS[chain] ? CHAIN_RPCS[chain] : CHAIN_RPCS['gnosis'];
+  const currency = chain === 'ethereum' ? 'ETH' : (chain === 'base' ? 'ETH' : 'xDAI');
+
   // Normalise: strip TLD and email suffixes so the worker lookup succeeds
   const agentBase = agent
     .replace(/_@nftmail\.box$/, '')
@@ -254,20 +272,20 @@ export async function checkAgentSolvency(agent: string, chain?: string): Promise
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'getAgentIdentity', agentName: agentBase }),
     });
-    
+
     if (!identityRes.ok) {
-      return { solvent: false, balance: null, currency: 'xDAI', minimumRequired: 1 };
+      return { solvent: false, balance: null, currency, minimumRequired: 1 };
     }
-    
+
     const identity = await identityRes.json();
     const safeAddress = identity.safe || identity.safeAddress;
-    
+
     if (!safeAddress) {
-      return { solvent: false, balance: 0, currency: 'xDAI', minimumRequired: 1 };
+      return { solvent: false, balance: 0, currency, minimumRequired: 1 };
     }
-    
+
     // Check Safe balance — use float division to preserve decimals
-    const balanceRes = await fetch(GNOSIS_RPC, {
+    const balanceRes = await fetch(rpc, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -277,7 +295,7 @@ export async function checkAgentSolvency(agent: string, chain?: string): Promise
         params: [safeAddress, 'latest'],
       }),
     });
-    
+
     const balanceData = await balanceRes.json();
     if (balanceData.result) {
       const wei   = BigInt(balanceData.result);
@@ -287,15 +305,15 @@ export async function checkAgentSolvency(agent: string, chain?: string): Promise
       return {
         solvent: balance >= 1,
         balance,
-        currency: 'xDAI',
+        currency,
         minimumRequired: 1,
       };
     }
-    
-    return { solvent: false, balance: null, currency: 'xDAI', minimumRequired: 1 };
-    
+
+    return { solvent: false, balance: null, currency, minimumRequired: 1 };
+
   } catch (error) {
-    return { solvent: false, balance: null, currency: 'xDAI', minimumRequired: 1 };
+    return { solvent: false, balance: null, currency, minimumRequired: 1 };
   }
 }
 
@@ -320,7 +338,7 @@ export async function analyzeX402Footprint(agent: string, chain?: string): Promi
   // Agents don't need public MCP endpoints to accept micropayments.
   const hasSafeWallet = solvency.balance !== null; // balance query succeeded → Safe exists
   // Use provided chain parameter if available, otherwise default to gnosis for Safe wallets
-  const impliedChains = hasSafeWallet ? (chain ? [chain] : ['gnosis']) : [];
+  const impliedChains = chain ? [chain] : (hasSafeWallet ? ['gnosis'] : []);
   const detectedChains = x402Profile.supportedChains.length > 0
     ? x402Profile.supportedChains
     : impliedChains;

@@ -59,10 +59,10 @@ export async function GET(request: NextRequest) {
     const x402Enabled = x402Profile.x402Support || hasSafeDestination;
     // Micropayment ready = solvent Safe (can send/receive) OR endpoint with small min-amount
     const micropaymentReady = solvency.solvent || x402Profile.micropaymentReady;
-    // Chains: detected from endpoints, or use provided chain parameter, or implied by Safe
-    const supportedChains = x402Profile.supportedChains.length > 0
-      ? x402Profile.supportedChains
-      : (chain ? [chain] : (hasSafeDestination ? ['gnosis'] : []));
+    // Chains: prioritize provided chain parameter, then detected from endpoints, then implied by Safe
+    const supportedChains = chain
+      ? [chain]
+      : (x402Profile.supportedChains.length > 0 ? x402Profile.supportedChains : (hasSafeDestination ? ['gnosis'] : []));
 
     return NextResponse.json({
       type: 'agent_probe',
