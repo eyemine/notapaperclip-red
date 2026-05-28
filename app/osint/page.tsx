@@ -2,6 +2,7 @@
 
 import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
+import { Erc8004CardPanel } from '../components/Erc8004CardPanel';
 
 const CHAINS = [
   { key: 'gnosis',      label: 'Gnosis',       chainId: 100,   explorer: 'https://gnosisscan.io/tx/' },
@@ -60,6 +61,22 @@ interface FootprintData {
     hasX402Capability: boolean;
     riskLevel: 'low' | 'medium' | 'high';
   };
+  erc8004Card?: {
+    agentId: number;
+    chain: string;
+    registry: string;
+    agentURI: string;
+    owner: string | null;
+    name: string | null;
+    description: string | null;
+    image: string | null;
+    services: Array<{ name: string; endpoint: string; version?: string }> | null;
+    skills: Array<{ id?: string; name: string; description?: string; tags?: string[] }> | null;
+    a2aEndpoint: string | null;
+    x402Support: boolean | null;
+    explorerUrl: string;
+    pairedAgent: { name: string; chain: string; agentId: number } | null;
+  } | null;
 }
 
 interface RelationsData {
@@ -406,6 +423,11 @@ function OSINTDashboardContent() {
         {/* Results */}
         {(footprint || relations || exposure || x402) && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+            {/* ERC-8004 Card panel (external agents like Normies) */}
+            {footprint?.erc8004Card && (
+              <Erc8004CardPanel card={footprint.erc8004Card} />
+            )}
+
             {/* Footprint */}
             {footprint && (
               <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: 'var(--card)', padding: '1.5rem' }}>

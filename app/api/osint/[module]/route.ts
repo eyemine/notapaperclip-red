@@ -77,6 +77,23 @@ interface AgentFootprint {
     hasX402Capability: boolean;
     riskLevel: 'low' | 'medium' | 'high';
   };
+  // Rich ERC-8004 explorer data (Normies, external agents, etc.) — null for ecosystem agents
+  erc8004Card: {
+    agentId: number;
+    chain: string;
+    registry: string;
+    agentURI: string;
+    owner: string | null;
+    name: string | null;
+    description: string | null;
+    image: string | null;
+    services: Array<{ name: string; endpoint: string; version?: string }> | null;
+    skills: Array<{ id?: string; name: string; description?: string; tags?: string[] }> | null;
+    a2aEndpoint: string | null;
+    x402Support: boolean | null;
+    explorerUrl: string;
+    pairedAgent: { name: string; chain: string; agentId: number } | null;
+  } | null;
 }
 
 interface AgentRelations {
@@ -223,26 +240,59 @@ function parse8004Url(input: string, chainParam?: string): { chain: string; agen
   return null;
 }
 
-// Fetch agent card from ERC-8004 registry on-chain → synthetic identity object
+// Encode ERC-721 ownerOf(uint256) call
+function encodeOwnerOfCall(tokenId: number): string {
+  const selector = '6352211e'; // ownerOf(uint256)
+  return `0x${selector}${tokenId.toString(16).padStart(64, '0')}`;
+}
+
+// Decode address from ABI-encoded return value (last 40 hex chars of 32-byte word)
+function decodeAddressReturn(hex: string): string | null {
+  const data = hex.startsWith('0x') ? hex.slice(2) : hex;
+  if (data.length < 64) return null;
+  const addr = '0x' + data.slice(24, 64);
+  if (/^0x0+$/.test(addr)) return null;
+  return addr;
+}
+
+// Fetch agent card + owner from ERC-8004 registry on-chain → synthetic identity object
 async function lookupErc8004Registry(chainKey: string, agentId: number): Promise<any | null> {
   const chain = ERC8004_CHAINS[chainKey] || ERC8004_CHAINS['gnosis'];
   try {
-    const res = await fetch(chain.rpc, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0', id: 1, method: 'eth_call',
-        params: [{ to: ERC8004_REGISTRY, data: encodeTokenURICall(agentId) }, 'latest'],
+    // Batch tokenURI + ownerOf in parallel
+    const [uriRes, ownerRes] = await Promise.all([
+      fetch(chain.rpc, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0', id: 1, method: 'eth_call',
+          params: [{ to: ERC8004_REGISTRY, data: encodeTokenURICall(agentId) }, 'latest'],
+        }),
+        signal: AbortSignal.timeout(8000),
       }),
-      signal: AbortSignal.timeout(8000),
-    });
-    const json = await res.json() as { result?: string };
-    if (!json.result || json.result === '0x') return null;
+      fetch(chain.rpc, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0', id: 2, method: 'eth_call',
+          params: [{ to: ERC8004_REGISTRY, data: encodeOwnerOfCall(agentId) }, 'latest'],
+        }),
+        signal: AbortSignal.timeout(8000),
+      }),
+    ]);
+    const uriJson = await uriRes.json() as { result?: string };
+    if (!uriJson.result || uriJson.result === '0x') return null;
 
-    const agentURI = decodeStringReturn(json.result);
+    const agentURI = decodeStringReturn(uriJson.result);
     if (!agentURI) return null;
 
-    let card: any = { agentId, chain: chainKey, agentURI, source: 'erc8004-registry' };
+    let owner: string | null = null;
+    try {
+      const ownerJson = await ownerRes.json() as { result?: string };
+      if (ownerJson.result) owner = decodeAddressReturn(ownerJson.result);
+    } catch {}
+
+    let card: any = { agentId, chain: chainKey, agentURI, owner, source: 'erc8004-registry' };
 
     // Inline data URI
     if (agentURI.startsWith('data:')) {
@@ -341,12 +391,14 @@ async function analyzeFootprint(agent: string, chain?: string): Promise<AgentFoo
   let identity: any = null;
   let dataSource: AgentFootprint['dataSource'] = 'none';
   let tbaAddress: string | null = null;
+  let erc8004Card: any = null; // Rich ERC-8004 card data for external agents
 
   // ─── PHASE 0: ERC-8004 direct registry (8004agents.ai URL, #ID, erc8004:chain:id) ───
   const erc8004Parsed = parse8004Url(agent, chain);
   if (erc8004Parsed) {
     const card = await lookupErc8004Registry(erc8004Parsed.chain, erc8004Parsed.agentId);
     if (card) {
+      erc8004Card = card;
       // Only use TLD from card if it's one of our known ecosystem TLDs
       // External agents (like Ethereum normies) shouldn't show fabricated TLDs
       const KNOWN_TLDS = ['molt', 'nftmail', 'openclaw', 'picoclaw', 'vault', 'agent'];
@@ -627,6 +679,62 @@ async function analyzeFootprint(agent: string, chain?: string): Promise<AgentFoo
   const tierRaw = identity?.accountTier || identity?.tier || 'unknown';
   const tier = tierRaw === 'Lite' ? 'Pro' : tierRaw;
 
+  // ─── PHASE 7: Build erc8004Card for rich external agent display ───
+  let erc8004CardOut: AgentFootprint['erc8004Card'] = null;
+  if (erc8004Card) {
+    const EXPLORERS: Record<string, string> = {
+      ethereum: 'https://etherscan.io',
+      gnosis: 'https://gnosisscan.io',
+      base: 'https://basescan.org',
+      baseSepolia: 'https://sepolia.basescan.org',
+    };
+    const explorerBase = EXPLORERS[erc8004Card.chain] || EXPLORERS['ethereum'];
+
+    // Check for paired ecosystem agent via owner address → listAgents
+    let pairedAgent: { name: string; chain: string; agentId: number } | null = null;
+    if (erc8004Card.owner) {
+      try {
+        const listRes = await fetch(`${WORKER_URL}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'listAgents', safeAddress: erc8004Card.owner }),
+          signal: AbortSignal.timeout(5000),
+        });
+        if (listRes.ok) {
+          const data = await listRes.json() as { agents?: Array<{ name: string; erc8004?: any }> };
+          for (const a of (data.agents || [])) {
+            if (a.erc8004) {
+              for (const [c, info] of Object.entries(a.erc8004) as [string, any][]) {
+                if (info?.agentId) {
+                  pairedAgent = { name: a.name, chain: c, agentId: info.agentId };
+                  break;
+                }
+              }
+              if (pairedAgent) break;
+            }
+          }
+        }
+      } catch {}
+    }
+
+    erc8004CardOut = {
+      agentId: erc8004Card.agentId,
+      chain: erc8004Card.chain,
+      registry: ERC8004_REGISTRY,
+      agentURI: erc8004Card.agentURI,
+      owner: erc8004Card.owner || null,
+      name: erc8004Card.name || null,
+      description: erc8004Card.description || null,
+      image: erc8004Card.image || null,
+      services: Array.isArray(erc8004Card.services) ? erc8004Card.services : null,
+      skills: Array.isArray(erc8004Card.skills) ? erc8004Card.skills : null,
+      a2aEndpoint: erc8004Card.links?.a2aCard || null,
+      x402Support: erc8004Card.x402Support !== undefined ? erc8004Card.x402Support : null,
+      explorerUrl: `${explorerBase}/address/${ERC8004_REGISTRY}`,
+      pairedAgent,
+    };
+  }
+
   return {
     agent,
     dataSource,
@@ -653,6 +761,7 @@ async function analyzeFootprint(agent: string, chain?: string): Promise<AgentFoo
       hasX402Capability,
       riskLevel,
     },
+    erc8004Card: erc8004CardOut,
   };
 }
 
