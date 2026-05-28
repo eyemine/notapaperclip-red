@@ -210,12 +210,16 @@ function decodeStringReturn(hex: string): string {
 }
 
 // Parse 8004agents.ai URL → { chain, agentId } or null
-function parse8004Url(input: string): { chain: string; agentId: number } | null {
+// Also handles #agentId format (needs chain parameter from query string)
+function parse8004Url(input: string, chainParam?: string): { chain: string; agentId: number } | null {
   const m = /8004agents\.ai\/([^/]+)\/agent\/(\d+)/.exec(input);
   if (m) return { chain: m[1].toLowerCase(), agentId: parseInt(m[2]) };
   // Also accept erc8004:{chain}:{agentId} internal encoding
   const m2 = /^erc8004:([^:]+):(\d+)$/.exec(input);
   if (m2) return { chain: m2[1], agentId: parseInt(m2[2]) };
+  // Handle #agentId format - requires chain parameter
+  const m3 = /^#(\d+)$/.exec(input);
+  if (m3 && chainParam) return { chain: chainParam.toLowerCase(), agentId: parseInt(m3[1]) };
   return null;
 }
 
@@ -315,13 +319,13 @@ async function fetchEnsTextViaGateway(ensName: string): Promise<AgentFootprint['
 
 // ============== IMPLEMENTATIONS ==============
 
-async function analyzeFootprint(agent: string): Promise<AgentFootprint> {
+async function analyzeFootprint(agent: string, chain?: string): Promise<AgentFootprint> {
   let identity: any = null;
   let dataSource: AgentFootprint['dataSource'] = 'none';
   let tbaAddress: string | null = null;
 
   // ─── PHASE 0: ERC-8004 direct registry (8004agents.ai URL, #ID, erc8004:chain:id) ───
-  const erc8004Parsed = parse8004Url(agent);
+  const erc8004Parsed = parse8004Url(agent, chain);
   if (erc8004Parsed) {
     const card = await lookupErc8004Registry(erc8004Parsed.chain, erc8004Parsed.agentId);
     if (card) {
@@ -1358,11 +1362,11 @@ function analyzeCorrelations(events: ReconEvent[]): Array<{ type: string; entiti
   return correlations;
 }
 
-async function checkExposure(agent: string): Promise<ExposureReport> {
+async function checkExposure(agent: string, chain?: string): Promise<ExposureReport> {
   // Same 3-phase lookup as analyzeFootprint — never throw for unknown agents
   let identity: any = null;
 
-  const erc8004Parsed = parse8004Url(agent);
+  const erc8004Parsed = parse8004Url(agent, chain);
   if (erc8004Parsed) {
     identity = await lookupErc8004Registry(erc8004Parsed.chain, erc8004Parsed.agentId);
   }
@@ -1705,7 +1709,7 @@ export async function GET(
     
     switch (module) {
       case 'footprint':
-        result = await analyzeFootprint(agent);
+        result = await analyzeFootprint(agent, chain || undefined);
         break;
       case 'relations':
         result = await mapRelations(agent);
@@ -1723,7 +1727,7 @@ export async function GET(
         result = await runRecon(agent, modules);
         break;
       case 'exposure':
-        result = await checkExposure(agent);
+        result = await checkExposure(agent, chain || undefined);
         break;
       case 'risk':
         result = await assessRisk(agent);
