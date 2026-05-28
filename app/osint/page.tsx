@@ -5,10 +5,10 @@ import { useSearchParams } from 'next/navigation';
 import { Erc8004CardPanel } from '../components/Erc8004CardPanel';
 
 const CHAINS = [
-  { key: 'gnosis',      label: 'Gnosis',       chainId: 100,   explorer: 'https://gnosisscan.io/tx/' },
   { key: 'base',        label: 'Base',         chainId: 8453,  explorer: 'https://basescan.org/tx/' },
   { key: 'baseSepolia', label: 'Base Sepolia', chainId: 84532, explorer: 'https://sepolia.basescan.org/tx/' },
   { key: 'ethereum',    label: 'Ethereum',     chainId: 1,     explorer: 'https://etherscan.io/tx/' },
+  { key: 'gnosis',      label: 'Gnosis',       chainId: 100,   explorer: 'https://gnosisscan.io/tx/' },
 ];
 
 type LookupMode = 'agent' | 'token' | 'email';
@@ -275,8 +275,8 @@ function OSINTDashboardContent() {
       <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
         {(
           [
-            { key: 'agent', label: 'By Agent Name' },
             { key: 'token', label: 'By ERC-8004 Token ID' },
+            { key: 'agent', label: 'By Agent Name' },
             { key: 'email', label: 'By NFTmail Address' },
           ] as { key: LookupMode; label: string }[]
         ).map(({ key, label }) => (

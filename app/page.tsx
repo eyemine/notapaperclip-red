@@ -225,7 +225,7 @@ function Erc8004FeedInner() {
 
       {/* Filters bar */}
       <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.75rem', alignItems: 'center' }}>
-        {(['all', 'ethereum', 'gnosis', 'basemainnet', 'basesepolia'] as const).map(c => (
+        {(['all', 'basemainnet', 'basesepolia', 'ethereum', 'gnosis'] as const).map(c => (
           <button key={c}
             onClick={() => setChain(c)}
             className={chain === c ? 'btn-primary' : 'btn-secondary'}
