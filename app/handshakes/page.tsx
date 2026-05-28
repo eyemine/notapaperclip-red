@@ -2,6 +2,7 @@
 
 import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
+import { Erc8004CardPanel } from '../components/Erc8004CardPanel';
 
 const GHOSTAGENT_API    = '/api/handshake';
 const GHOSTAGENT_LOOKUP = '/api/handshake';
@@ -105,6 +106,7 @@ function HandshakesPageInner() {
   const [error, setError]         = useState('');
   const [resolved, setResolved]   = useState<ResolvedAgent | null>(null);
   const [onChainAgent, setOnChainAgent] = useState<OnChainAgent | null>(null);
+  const [erc8004Card, setErc8004Card] = useState<any | null>(null);
   const [handshakes, setHandshakes] = useState<StoredHandshake[]>([]);
   const [single, setSingle]       = useState<StoredHandshake | null>(null);
 
@@ -223,9 +225,9 @@ function HandshakesPageInner() {
         }
         setResolved({ agentName: `Token #${tokenId}`, agentId: Number(tokenId), agentURI: null, registered: true, agentEmail: undefined });
 
-        // Fetch on-chain identity + handshakes in parallel
-        const [onChainRes, handshakeRes] = await Promise.allSettled([
-          fetch(`/api/erc8004/agent?id=${tokenId}&chain=${chain}`).then(r => r.json()),
+        // Fetch OSINT footprint (rich ERC-8004 card) + handshakes in parallel
+        const [osintRes, handshakeRes] = await Promise.allSettled([
+          fetch(`/api/osint/footprint?agent=%23${tokenId}&chain=${chain}`).then(r => r.json()),
           fetch(GHOSTAGENT_API, {
             method:  'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -233,12 +235,12 @@ function HandshakesPageInner() {
           }).then(r => r.json()),
         ]);
 
-        if (onChainRes.status === 'fulfilled') {
-          const oc = onChainRes.value as OnChainAgent;
-          setOnChainAgent(oc);
-          // Enrich resolved badge with name from metadata if available
-          if (oc.found && oc.metadata?.name) {
-            setResolved(prev => prev ? { ...prev, agentName: oc.metadata!.name as string } : prev);
+        if (osintRes.status === 'fulfilled') {
+          const footprint = osintRes.value as { erc8004Card?: any; offChain?: { principal?: string } };
+          setErc8004Card(footprint.erc8004Card || null);
+          // Enrich resolved badge with name from card if available
+          if (footprint.erc8004Card?.name) {
+            setResolved(prev => prev ? { ...prev, agentName: footprint.erc8004Card.name } : prev);
           }
         }
 
@@ -496,6 +498,11 @@ function HandshakesPageInner() {
             <span className="pill pill-green" style={{ flexShrink: 0 }}>Registered</span>
           )}
         </div>
+      )}
+
+      {/* Rich ERC-8004 card panel — token mode only */}
+      {erc8004Card && mode === 'token' && (
+        <Erc8004CardPanel card={erc8004Card} />
       )}
 
       {/* On-chain identity card — token mode only */}
