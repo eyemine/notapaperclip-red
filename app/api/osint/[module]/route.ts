@@ -10,7 +10,7 @@ const ERC8004_REGISTRY = '0x8004A169FB4a3325136EB29fA0ceB6D2e539a432';
 
 // ERC-8004 supported chains for universal agent lookup
 const ERC8004_CHAINS: Record<string, { name: string; rpc: string; chainId: number }> = {
-  ethereum: { name: 'Ethereum', rpc: 'https://eth.llamarpc.com', chainId: 1 },
+  ethereum: { name: 'Ethereum', rpc: 'https://ethereum-rpc.publicnode.com', chainId: 1 },
   gnosis: { name: 'Gnosis', rpc: 'https://rpc.gnosischain.com', chainId: 100 },
   base: { name: 'Base', rpc: 'https://mainnet.base.org', chainId: 8453 },
   'base-sepolia': { name: 'Base Sepolia', rpc: 'https://sepolia.base.org', chainId: 84532 },
