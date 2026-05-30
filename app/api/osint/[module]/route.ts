@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { monitorAgentSpending } from '../../../services/agentcash-monitor';
+import { agentService } from '@/lib/agent-service';
+import { CHAINS } from '@/lib/chains';
+import { validateErc8004Card, validateOnChainData } from '@/lib/validation';
 
 const GNOSIS_RPC = process.env.NEXT_PUBLIC_GNOSIS_RPC || 'https://rpc.gnosischain.com';
 const GNOSISSCAN_API = 'https://api.gnosisscan.io/api';
@@ -7,14 +10,6 @@ const BASESCAN_API = 'https://api.basescan.org/api';
 const WORKER_URL = process.env.WORKER_URL || 'https://nftmail-email-worker.richard-159.workers.dev';
 const GHOSTAGENT_LOOKUP_URL = 'https://ghostagent.ninja/api/agent-lookup';
 const ERC8004_REGISTRY = '0x8004A169FB4a3325136EB29fA0ceB6D2e539a432';
-
-// ERC-8004 supported chains for universal agent lookup
-const ERC8004_CHAINS: Record<string, { name: string; rpc: string; chainId: number }> = {
-  ethereum: { name: 'Ethereum', rpc: 'https://ethereum-rpc.publicnode.com', chainId: 1 },
-  gnosis: { name: 'Gnosis', rpc: 'https://rpc.gnosischain.com', chainId: 100 },
-  base: { name: 'Base', rpc: 'https://mainnet.base.org', chainId: 8453 },
-  'base-sepolia': { name: 'Base Sepolia', rpc: 'https://sepolia.base.org', chainId: 84532 },
-};
 
 // ============== TYPES ==============
 
@@ -47,6 +42,8 @@ interface AgentFootprint {
     emailAddress: string | null;
     sandboxEmails: { human: string | null; agent: string | null };
     agentCardUrl: string | null;
+    nftImage: string | null;
+    nftImageSource: 'paired' | 'beacon' | null;
     ensSocial: {
       name: string | null;
       description: string | null;
@@ -92,6 +89,13 @@ interface AgentFootprint {
     a2aEndpoint: string | null;
     x402Support: boolean | null;
     explorerUrl: string;
+    binding: {
+      bindingContract: string;
+      tokenStandard: string;
+      tokenContract: string;
+      tokenId: string;
+      verified: boolean;
+    } | null;
     pairedAgent: { name: string; chain: string; agentId: number } | null;
   } | null;
 }
@@ -228,6 +232,7 @@ function decodeStringReturn(hex: string): string {
 
 // Parse 8004agents.ai URL → { chain, agentId } or null
 // Also handles #agentId format (needs chain parameter from query string)
+// Also handles plain number format (e.g., 32573) when chain parameter is provided
 function parse8004Url(input: string, chainParam?: string): { chain: string; agentId: number } | null {
   const m = /8004agents\.ai\/([^/]+)\/agent\/(\d+)/.exec(input);
   if (m) return { chain: m[1].toLowerCase(), agentId: parseInt(m[2]) };
@@ -237,6 +242,9 @@ function parse8004Url(input: string, chainParam?: string): { chain: string; agen
   // Handle #agentId format - requires chain parameter
   const m3 = /^#(\d+)$/.exec(input);
   if (m3 && chainParam) return { chain: chainParam.toLowerCase(), agentId: parseInt(m3[1]) };
+  // Handle plain number format (e.g., 32573) - requires chain parameter
+  const m4 = /^(\d+)$/.exec(input);
+  if (m4 && chainParam) return { chain: chainParam.toLowerCase(), agentId: parseInt(m4[1]) };
   return null;
 }
 
@@ -255,87 +263,13 @@ function decodeAddressReturn(hex: string): string | null {
   return addr;
 }
 
-// Fetch agent card + owner from ERC-8004 registry on-chain → synthetic identity object
+// Fetch agent card + owner from ERC-8004 registry using unified service
 async function lookupErc8004Registry(chainKey: string, agentId: number): Promise<any | null> {
-  const chain = ERC8004_CHAINS[chainKey] || ERC8004_CHAINS['gnosis'];
   try {
-    // Batch tokenURI + ownerOf in parallel
-    const [uriRes, ownerRes] = await Promise.all([
-      fetch(chain.rpc, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          jsonrpc: '2.0', id: 1, method: 'eth_call',
-          params: [{ to: ERC8004_REGISTRY, data: encodeTokenURICall(agentId) }, 'latest'],
-        }),
-        signal: AbortSignal.timeout(8000),
-      }),
-      fetch(chain.rpc, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          jsonrpc: '2.0', id: 2, method: 'eth_call',
-          params: [{ to: ERC8004_REGISTRY, data: encodeOwnerOfCall(agentId) }, 'latest'],
-        }),
-        signal: AbortSignal.timeout(8000),
-      }),
-    ]);
-    const uriJson = await uriRes.json() as { result?: string };
-    if (!uriJson.result || uriJson.result === '0x') return null;
-
-    const agentURI = decodeStringReturn(uriJson.result);
-    if (!agentURI) return null;
-
-    let owner: string | null = null;
-    try {
-      const ownerJson = await ownerRes.json() as { result?: string };
-      if (ownerJson.result) owner = decodeAddressReturn(ownerJson.result);
-    } catch {}
-
-    let card: any = { agentId, chain: chainKey, agentURI, owner, source: 'erc8004-registry' };
-
-    // Inline data URI
-    if (agentURI.startsWith('data:')) {
-      try {
-        const b64 = agentURI.split(',')[1];
-        const parsed = JSON.parse(Buffer.from(b64, 'base64').toString('utf8'));
-        card = { ...card, ...parsed };
-      } catch {}
-      return card;
-    }
-
-    // Remote URI
-    try {
-      const cardRes = await fetch(agentURI, {
-        headers: { Accept: 'application/json' },
-        signal: AbortSignal.timeout(6000),
-      });
-      if (cardRes.ok) {
-        const parsed = await cardRes.json();
-        card = { ...card, ...parsed };
-
-        // Extract A2A endpoint from services array (Normies format)
-        if (parsed.services && Array.isArray(parsed.services)) {
-          const a2aService = parsed.services.find((s: any) => s.name === 'A2A');
-          if (a2aService && a2aService.endpoint) {
-            card.links = { ...card.links, a2aCard: a2aService.endpoint };
-          }
-        }
-
-        // Extract skills from agent card (Normies format)
-        if (parsed.skills && Array.isArray(parsed.skills)) {
-          card.skills = parsed.skills;
-        }
-
-        // Extract x402 support flag
-        if (parsed.x402Support !== undefined) {
-          card.x402Support = parsed.x402Support;
-        }
-      }
-    } catch {}
-
+    const card = await agentService.getErc8004Card(chainKey, agentId);
     return card;
-  } catch {
+  } catch (error) {
+    console.error(`Failed to lookup ERC-8004 registry for ${chainKey}:${agentId}:`, error);
     return null;
   }
 }
@@ -396,61 +330,87 @@ async function analyzeFootprint(agent: string, chain?: string): Promise<AgentFoo
   // ─── PHASE 0: ERC-8004 direct registry (8004agents.ai URL, #ID, erc8004:chain:id) ───
   const erc8004Parsed = parse8004Url(agent, chain);
   if (erc8004Parsed) {
-    const card = await lookupErc8004Registry(erc8004Parsed.chain, erc8004Parsed.agentId);
-    if (card) {
-      erc8004Card = card;
-      // Only use TLD from card if it's one of our known ecosystem TLDs
-      // External agents (like Ethereum normies) shouldn't show fabricated TLDs
-      const KNOWN_TLDS = ['molt', 'nftmail', 'openclaw', 'picoclaw', 'vault', 'agent'];
-      const cardTld = card.tld || null;
-      const tldBase = cardTld ? cardTld.replace(/\.gno$/, '') : null;
-      const validTld = (tldBase && KNOWN_TLDS.includes(tldBase)) ? cardTld : null;
+    try {
+      const card = await lookupErc8004Registry(erc8004Parsed.chain, erc8004Parsed.agentId);
+      if (card) {
+        // Validate the card before using it
+        const validation = validateErc8004Card(card);
+        if (validation.isValid) {
+          erc8004Card = validation.data;
+          
+          // Only use TLD from card if it's one of our known ecosystem TLDs
+          // External agents (like Ethereum normies) shouldn't show fabricated TLDs
+          const KNOWN_TLDS = ['molt', 'nftmail', 'openclaw', 'picoclaw', 'vault', 'agent'];
+          const cardTld = card.tld || null;
+          const tldBase = cardTld ? cardTld.replace(/\.gno$/, '') : null;
+          const validTld = (tldBase && KNOWN_TLDS.includes(tldBase)) ? cardTld : null;
 
-      identity = {
-        exists: true,
-        safe: card.safe || card.safeAddress || null,
-        tbaAddress: null,
-        identityNft: null,
-        tld: validTld,
-        links: { agentCard: card.agentURI || null, ...(card.links || {}) },
-        mcpServers: card.mcpServers || card.tools?.map((t: any) => t.url).filter(Boolean) || [],
-        genomeUrl: card.genomeUrl || null,
-        accountTier: card.tier || 'basic',
-        tier: card.tier || 'basic',
-        totalXdaiBurned: 0,
-        surgeReputationScore: 0,
-        erc8004: { [erc8004Parsed.chain]: { agentId: erc8004Parsed.agentId, agentURI: card.agentURI } },
-        email: card.email || null,
-        name: card.name || `agent#${erc8004Parsed.agentId}`,
-        // Preserve Normies-specific fields
-        skills: card.skills || null,
-        x402Support: card.x402Support !== undefined ? card.x402Support : null,
-        description: card.description || null,
-        image: card.image || null,
-      };
-      dataSource = 'erc8004-registry';
+          identity = {
+            exists: true,
+            safe: card.safe || card.safeAddress || null,
+            tbaAddress: null,
+            identityNft: null,
+            tld: validTld,
+            links: { agentCard: card.agentURI || null, ...(card.links || {}) },
+            mcpServers: card.mcpServers || card.tools?.map((t: any) => t.url).filter(Boolean) || [],
+            genomeUrl: card.genomeUrl || null,
+            accountTier: card.tier || 'basic',
+            tier: card.tier || 'basic',
+            totalXdaiBurned: 0,
+            surgeReputationScore: 0,
+            erc8004: { [erc8004Parsed.chain]: { agentId: erc8004Parsed.agentId, agentURI: card.agentURI } },
+            email: card.email || null,
+            name: card.name || `agent#${erc8004Parsed.agentId}`,
+            // Preserve Normies-specific fields
+            skills: card.skills || null,
+            x402Support: card.x402Support !== undefined ? card.x402Support : null,
+            description: card.description || null,
+            image: card.image || null,
+          };
+          dataSource = 'erc8004-registry';
+        } else {
+          console.warn(`Invalid ERC-8004 card for agent ${erc8004Parsed.agentId}:`, validation.errors);
+        }
+      }
+    } catch (error) {
+      console.error(`Failed to process ERC-8004 card for agent ${erc8004Parsed.agentId}:`, error);
     }
   }
 
-  // ─── PHASE 1: ghostagent.ninja agent-lookup — only for ecosystem agents, don't overwrite ERC-8004 data ───
+  // ─── PHASE 1: ghostagent.ninja agent-lookup + agent-card (parallel) — only for ecosystem agents ───
   // Skip if we already have identity from ERC-8004 registry (external agents like Normies)
+  let agentCardImage: string | null = null;
   if (!identity || dataSource !== 'erc8004-registry') {
+    const agentNameSimple = typeof agent === 'string' && !agent.startsWith('erc8004:') && !agent.startsWith('#') ? agent : null;
     try {
-      const lookupRes = await fetch(`${GHOSTAGENT_LOOKUP_URL}?q=${encodeURIComponent(agent)}`, {
-        method: 'GET',
-        headers: { 'Accept': 'application/json' },
-        signal: AbortSignal.timeout(6000),
-      });
-      if (lookupRes.ok) {
-        const lookupData = await lookupRes.json();
+      const [lookupRes, cardRes] = await Promise.allSettled([
+        fetch(`${GHOSTAGENT_LOOKUP_URL}?q=${encodeURIComponent(agent)}`, {
+          method: 'GET',
+          headers: { 'Accept': 'application/json' },
+          signal: AbortSignal.timeout(6000),
+        }),
+        agentNameSimple
+          ? fetch(`https://ghostagent.ninja/api/agent-card?name=${encodeURIComponent(agentNameSimple)}`, {
+              headers: { 'Accept': 'application/json' },
+              signal: AbortSignal.timeout(5000),
+            })
+          : Promise.resolve(null),
+      ]);
+
+      if (lookupRes.status === 'fulfilled' && lookupRes.value.ok) {
+        const lookupData = await lookupRes.value.json();
         if (lookupData.exists) {
           if (!identity) {
             identity = lookupData;
             dataSource = 'ghostagent-api';
           }
-          // Always take TBA from ghostagent API — it does on-chain derivation
           tbaAddress = lookupData.tbaAddress || tbaAddress;
         }
+      }
+
+      if (cardRes.status === 'fulfilled' && cardRes.value && cardRes.value.ok) {
+        const cardData = await cardRes.value.json() as { image?: string };
+        if (cardData.image) agentCardImage = cardData.image;
       }
     } catch {
       // non-fatal
@@ -667,13 +627,17 @@ async function analyzeFootprint(agent: string, chain?: string): Promise<AgentFoo
   } : null;
 
   // ─── PHASE 6: Exposure & risk assessment ───
+  // Only calculate for known ecosystem agents, not external ERC-8004 agents (Normies)
   const KNOWN_TLDS = ['molt', 'nftmail', 'openclaw', 'picoclaw', 'vault', 'agent'];
-  const hasX402Capability = !!(tldBase && KNOWN_TLDS.includes(tldBase));
+  const isEcosystemAgent = tldBase && KNOWN_TLDS.includes(tldBase);
+  const hasX402Capability = isEcosystemAgent;
   const hasPublicEndpoints = mcpServers.length > 0;
   
   let riskLevel: 'low' | 'medium' | 'high' = 'low';
-  if (!safeAddress && !tbaAddress) riskLevel = 'high';
-  else if (onChainData.balances.length === 0 || parseFloat(onChainData.balances[0]?.amount || '0') < 1) riskLevel = 'medium';
+  if (isEcosystemAgent) {
+    if (!safeAddress && !tbaAddress) riskLevel = 'high';
+    else if (onChainData.balances.length === 0 || parseFloat(onChainData.balances[0]?.amount || '0') < 1) riskLevel = 'medium';
+  }
 
   // Normalize tier: Lite → Pro
   const tierRaw = identity?.accountTier || identity?.tier || 'unknown';
@@ -733,6 +697,7 @@ async function analyzeFootprint(agent: string, chain?: string): Promise<AgentFoo
       a2aEndpoint: erc8004Card.links?.a2aCard || null,
       x402Support: erc8004Card.x402Support !== undefined ? erc8004Card.x402Support : null,
       explorerUrl: `${explorerBase}/address/${ERC8004_REGISTRY}`,
+      binding: erc8004Card.binding ?? null,
       pairedAgent,
     };
   }
@@ -753,6 +718,10 @@ async function analyzeFootprint(agent: string, chain?: string): Promise<AgentFoo
       emailAddress,
       sandboxEmails,
       agentCardUrl,
+      nftImage: identity?.image || agentCardImage || null,
+      nftImageSource: (identity?.image || agentCardImage)
+        ? (identity?.byoPairedImage ? 'paired' : 'beacon')
+        : null,
       ensSocial: ensSocial ?? null,
     },
     spendProfile,
