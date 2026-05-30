@@ -68,6 +68,7 @@ async function getSafeBalance(safeAddress: string): Promise<number | null> {
     const res = await fetch(GNOSIS_RPC, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      signal: AbortSignal.timeout(3000),
       body: JSON.stringify({
         jsonrpc: '2.0', id: 1,
         method: 'eth_getBalance',
@@ -91,6 +92,7 @@ async function getSafeTransactions(safeAddress: string, limit: number = 100): Pr
   try {
     const res = await fetch(SAFE_TX_API, {
       headers: { 'Accept': 'application/json' },
+      signal: AbortSignal.timeout(4000),
     });
     if (!res.ok) return [];
     const data = await res.json() as { results?: Array<{
@@ -126,6 +128,7 @@ async function getAgentCashLogs(agent: string): Promise<SpendEntry[]> {
     const res = await fetch(WORKER_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      signal: AbortSignal.timeout(3000),
       body: JSON.stringify({ action: 'getAgentCashSpendLog', agentName: agent }),
     });
     if (!res.ok) return [];
@@ -201,6 +204,7 @@ export async function monitorAgentSpending(agent: string): Promise<AgentSpendPro
     const idRes = await fetch(WORKER_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      signal: AbortSignal.timeout(3000),
       body: JSON.stringify({ action: 'getAgentIdentity', agentName: agent }),
     });
     if (idRes.ok) {

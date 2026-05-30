@@ -470,29 +470,79 @@ async function analyzeFootprint(agent: string, chain?: string): Promise<AgentFoo
   const emailAddress = identity?.email || identity?.emailAddress || null;
 
   // Sandbox email accounts: human HITL + agent A2A
-  // Only surface addresses that actually exist in the nftmail.box KV — prevents
-  // fabricated addresses for external agents (e.g. Olas) that have ERC-8004 identities
-  // but no registered inbox.
   const agentNameForEmail = typeof agent === 'string' && !agent.startsWith('erc8004:') && !agent.startsWith('#') ? agent : (identity?.name || null);
-  let sandboxEmails: { human: string | null; agent: string | null } = { human: null, agent: null };
-  if (agentNameForEmail) {
-    try {
-      const resolveRes = await fetch(WORKER_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'resolveAddress', name: agentNameForEmail }),
-      });
-      const resolved = await resolveRes.json() as { exists?: boolean };
-      if (resolved?.exists) {
-        sandboxEmails = {
-          human: `${agentNameForEmail}@nftmail.box`,
-          agent: `${agentNameForEmail}_@nftmail.box`,
-        };
-      }
-    } catch { /* non-fatal — leave as null */ }
-  }
 
-  // ─── PHASE 4: Gather on-chain data ───
+  // ENS name detection (needs identity)
+  const ensNftName: string | null = (() => {
+    const nft = identity?.identityNft;
+    if (!nft) return null;
+    const name = nft.name || nft.label || nft.ensName || '';
+    if (name.endsWith('.eth')) return name;
+    if (nft.tld === 'eth' || (typeof agent === 'string' && !agent.startsWith('erc8004:') && !agent.startsWith('#'))) {
+      if (tld === 'eth' || (tld && tld.endsWith('.eth'))) return tld.endsWith('.eth') ? tld : `${agent}.eth`;
+    }
+    return null;
+  })();
+
+  const isEcosystemInput = typeof agent === 'string' && !agent.startsWith('erc8004:') && !agent.startsWith('#');
+
+  // ─── PHASES 3+4+5: Run all in parallel — they are independent once identity is known ───
+  const [
+    resolveResult,
+    onChainResult,
+    tbaCodeResult,
+    ensSocialResult,
+    spendResult,
+  ] = await Promise.allSettled([
+
+    // Phase 3: resolve sandbox email existence
+    agentNameForEmail
+      ? fetch(WORKER_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: AbortSignal.timeout(3000),
+          body: JSON.stringify({ action: 'resolveAddress', name: agentNameForEmail }),
+        }).then(r => r.json() as Promise<{ exists?: boolean }>).catch(() => null)
+      : Promise.resolve(null),
+
+    // Phase 4a: Safe balance + tx history
+    safeAddress
+      ? (async () => {
+          const gnosisscanKey = process.env.ETHERSCAN_API_KEY || '';
+          const [balanceRes, txRes, safeTxRes] = await Promise.all([
+            fetch(GNOSIS_RPC, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              signal: AbortSignal.timeout(3000),
+              body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_getBalance', params: [safeAddress, 'latest'] }),
+            }).catch(() => null),
+            gnosisscanKey
+              ? fetch(`${GNOSISSCAN_API}?module=account&action=txlist&address=${safeAddress}&startblock=0&endblock=99999999&sort=asc&apikey=${gnosisscanKey}`, { signal: AbortSignal.timeout(5000) }).catch(() => null)
+              : Promise.resolve(null),
+            fetch(`https://safe-transaction-gnosis-chain.safe.global/api/v1/safes/${safeAddress}/multisig-transactions/?limit=1&executed=true`, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(4000) }).catch(() => null),
+          ]);
+          return { balanceRes, txRes, safeTxRes };
+        })()
+      : Promise.resolve(null),
+
+    // Phase 4b: TBA code check
+    tbaAddress
+      ? fetch(GNOSIS_RPC, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: AbortSignal.timeout(3000),
+          body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'eth_getCode', params: [tbaAddress, 'latest'] }),
+        }).then(r => r.json() as Promise<{ result?: string }>).catch(() => null)
+      : Promise.resolve(null),
+
+    // Phase 5a: ENS social
+    ensNftName ? fetchEnsTextViaGateway(ensNftName) : Promise.resolve(null),
+
+    // Phase 5b: AgentCash spend (capped at 6s total via internal timeouts)
+    isEcosystemInput ? monitorAgentSpending(agent).catch(() => null) : Promise.resolve(null),
+  ]);
+
+  // Assemble on-chain data
   let onChainData = {
     safeAddress,
     tbaAddress,
@@ -504,39 +554,20 @@ async function analyzeFootprint(agent: string, chain?: string): Promise<AgentFoo
     erc8004Registrations: [] as AgentFootprint['onChain']['erc8004Registrations'],
   };
 
-  // Safe balance and transaction history
-  if (safeAddress) {
+  if (onChainResult.status === 'fulfilled' && onChainResult.value) {
+    const { balanceRes, txRes, safeTxRes } = onChainResult.value as { balanceRes: Response | null; txRes: Response | null; safeTxRes: Response | null };
     try {
-      const gnosisscanKey = process.env.ETHERSCAN_API_KEY || '';
-      const [balanceRes, txRes, safeTxRes] = await Promise.all([
-        fetch(GNOSIS_RPC, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            jsonrpc: '2.0',
-            id: 1,
-            method: 'eth_getBalance',
-            params: [safeAddress, 'latest'],
-          }),
-        }),
-        gnosisscanKey
-          ? fetch(`${GNOSISSCAN_API}?module=account&action=txlist&address=${safeAddress}&startblock=0&endblock=99999999&sort=asc&apikey=${gnosisscanKey}`, { signal: AbortSignal.timeout(8000) })
-          : Promise.resolve(null),
-        fetch(`https://safe-transaction-gnosis-chain.safe.global/api/v1/safes/${safeAddress}/multisig-transactions/?limit=1&executed=true`, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(6000) }),
-      ]);
-      
-      const balanceData = await balanceRes.json();
-      if (balanceData.result) {
-        const wei = BigInt(balanceData.result);
-        const whole = wei / BigInt(10 ** 18);
-        const frac  = Number(wei - whole * BigInt(10 ** 18)) / 1e18;
-        const xdaiBalance = (Number(whole) + frac).toFixed(4);
-        onChainData.balances.push({ token: 'xDAI', amount: xdaiBalance });
+      if (balanceRes?.ok) {
+        const balanceData = await balanceRes.json();
+        if (balanceData.result) {
+          const wei = BigInt(balanceData.result);
+          const whole = wei / BigInt(10 ** 18);
+          const frac = Number(wei - whole * BigInt(10 ** 18)) / 1e18;
+          onChainData.balances.push({ token: 'xDAI', amount: (Number(whole) + frac).toFixed(4) });
+        }
       }
-      
-      // Tx count: prefer Gnosisscan (full list) → Safe Transaction Service count header
       let txCountResolved = false;
-      if (txRes) {
+      if (txRes?.ok) {
         const txData = await txRes.json();
         if (txData.status === '1' && Array.isArray(txData.result)) {
           onChainData.totalTransactions = txData.result.length;
@@ -547,71 +578,31 @@ async function analyzeFootprint(agent: string, chain?: string): Promise<AgentFoo
           txCountResolved = true;
         }
       }
-      // Fallback: Safe Transaction Service count (no API key needed)
-      if (!txCountResolved && safeTxRes && safeTxRes.ok) {
-        const safeTxData = await safeTxRes.json() as { count?: number; countUniqueNonce?: number };
-        if (safeTxData.count !== undefined) {
-          onChainData.totalTransactions = safeTxData.count;
-          txCountResolved = true;
-        }
+      if (!txCountResolved && safeTxRes?.ok) {
+        const safeTxData = await safeTxRes.json() as { count?: number };
+        if (safeTxData.count !== undefined) onChainData.totalTransactions = safeTxData.count;
       }
-    } catch (error) {
-      console.error('Error fetching on-chain data:', error);
-    }
+    } catch { /* non-fatal */ }
   }
 
-  // ERC-8004 registrations from identity
+  if (tbaCodeResult.status === 'fulfilled' && tbaCodeResult.value) {
+    onChainData.tbaDeployed = !!(tbaCodeResult.value.result && tbaCodeResult.value.result !== '0x');
+  }
+
   if (identity?.erc8004) {
     Object.entries(identity.erc8004).forEach(([chain, data]: [string, any]) => {
-      if (data?.agentId) {
-        onChainData.erc8004Registrations.push({
-          chain,
-          agentId: data.agentId,
-          agentURI: data.agentURI || null,
-        });
-      }
+      if (data?.agentId) onChainData.erc8004Registrations.push({ chain, agentId: data.agentId, agentURI: data.agentURI || null });
     });
   }
 
-  // Check if TBA is deployed (has code)
-  if (tbaAddress) {
-    try {
-      const codeRes = await fetch(GNOSIS_RPC, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          jsonrpc: '2.0',
-          id: 2,
-          method: 'eth_getCode',
-          params: [tbaAddress, 'latest'],
-        }),
-      });
-      const codeData = await codeRes.json();
-      onChainData.tbaDeployed = !!(codeData.result && codeData.result !== '0x');
-    } catch {}
+  // Sandbox emails
+  let sandboxEmails: { human: string | null; agent: string | null } = { human: null, agent: null };
+  if (resolveResult.status === 'fulfilled' && resolveResult.value?.exists && agentNameForEmail) {
+    sandboxEmails = { human: `${agentNameForEmail}@nftmail.box`, agent: `${agentNameForEmail}_@nftmail.box` };
   }
 
-  // ─── PHASE 5: ENS social records + AgentCash spend profile (parallel) ───
-  // Detect ENS molt: identityNft is a .eth name OR tld contains 'eth'
-  const ensNftName: string | null = (() => {
-    const nft = identity?.identityNft;
-    if (!nft) return null;
-    const name = nft.name || nft.label || nft.ensName || '';
-    if (name.endsWith('.eth')) return name;
-    // BYO ENS: agentName + .eth as fallback
-    if (nft.tld === 'eth' || (typeof agent === 'string' && !agent.startsWith('erc8004:') && !agent.startsWith('#'))) {
-      // Check if tld itself is 'eth'
-      if (tld === 'eth' || (tld && tld.endsWith('.eth'))) return tld.endsWith('.eth') ? tld : `${agent}.eth`;
-    }
-    return null;
-  })();
-
-  const [ensSocial, spendProfileRaw] = await Promise.all([
-    ensNftName ? fetchEnsTextViaGateway(ensNftName) : Promise.resolve(null),
-    (typeof agent === 'string' && !agent.startsWith('erc8004:') && !agent.startsWith('#'))
-      ? monitorAgentSpending(agent).catch(() => null)
-      : Promise.resolve(null),
-  ]);
+  const ensSocial = ensSocialResult.status === 'fulfilled' ? ensSocialResult.value : null;
+  const spendProfileRaw = spendResult.status === 'fulfilled' ? spendResult.value : null;
 
   const spendProfile = spendProfileRaw ? {
     balance: spendProfileRaw.balance,
