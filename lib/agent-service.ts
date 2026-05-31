@@ -105,7 +105,7 @@ class AgentService {
             return v.isValid ? v.data : null;
           })
           .catch(() => null),
-        chainKey === 'ethereum'
+        (chainKey === 'ethereum' || chainKey === 'base')
           ? fetch(`${this.NORMIES_API}/${agentId}`, { signal: AbortSignal.timeout(3000) })
               .then(r => r.ok ? r.json() : null)
               .catch(() => null)
