@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { CHAIN_ORDER, CHAINS } from '../lib/chains';
 
 interface ChainEvent {
   chain:     string;
@@ -67,8 +68,9 @@ const EXPLORER: Record<number, string> = {
 function Erc8004FeedInner() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const [chain, setChain]         = useState<'all' | 'ethereum' | 'gnosis' | 'basemainnet' | 'basesepolia'>(() => (searchParams.get('chain') as any) || 'all');
+  const [chain, setChain]         = useState<string>(() => searchParams.get('chain') || 'all');
   const [agentFilter, setFilter]  = useState(() => searchParams.get('agent') ?? '');
+  const [blockRange, setBlockRange] = useState(() => parseInt(searchParams.get('blockRange') ?? '2000'));
   const [resolvedId, setResolved]         = useState<string | null>(null);
   const [resolvedName, setResolvedName]   = useState<string | null>(null);
   const [agentIdentity, setAgentIdentity] = useState<AgentIdentity | null>(null);
@@ -83,9 +85,10 @@ function Erc8004FeedInner() {
     const params = new URLSearchParams();
     if (chain && chain !== 'all') params.set('chain', chain);
     if (agentFilter) params.set('agent', agentFilter);
+    if (blockRange !== 2000) params.set('blockRange', String(blockRange));
     const newUrl = `?${params.toString()}`;
     router.replace(newUrl);
-  }, [chain, agentFilter, router]);
+  }, [chain, agentFilter, blockRange, router]);
 
   async function resolveFilter(raw: string): Promise<string> {
     const v = raw.trim();
@@ -161,7 +164,7 @@ function Erc8004FeedInner() {
     setResolveErr('');
     try {
       const agentId = await resolveFilter(agentFilter);
-      const params  = new URLSearchParams({ chain, limit: '100' });
+      const params  = new URLSearchParams({ chain, limit: '100', blockRange: String(blockRange) });
       if (agentId) params.set('agentId', agentId);
       const res  = await fetch(`/api/erc8004/events?${params}`);
       const json = await res.json() as FeedResult;
@@ -173,7 +176,7 @@ function Erc8004FeedInner() {
       setLoading(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chain, agentFilter]);
+  }, [chain, agentFilter, blockRange]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -225,14 +228,24 @@ function Erc8004FeedInner() {
 
       {/* Filters bar */}
       <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.75rem', alignItems: 'center' }}>
-        {(['all', 'basemainnet', 'basesepolia', 'ethereum', 'gnosis'] as const).map(c => (
+        {(['all', ...CHAIN_ORDER] as const).map(c => (
           <button key={c}
             onClick={() => setChain(c)}
             className={chain === c ? 'btn-primary' : 'btn-secondary'}
             style={{ fontSize: '0.75rem', padding: '0.35rem 0.75rem', borderRadius: 99 }}>
-            {c === 'all' ? 'All chains' : c === 'ethereum' ? 'Ethereum' : c === 'gnosis' ? 'Gnosis' : c === 'basemainnet' ? 'Base' : 'Base Sepolia'}
+            {c === 'all' ? 'All chains' : CHAINS[c]?.label || c}
           </button>
         ))}
+        <select
+          value={blockRange}
+          onChange={e => setBlockRange(parseInt(e.target.value))}
+          style={{ fontSize: '0.75rem', padding: '0.35rem 0.75rem', borderRadius: 99, background: 'var(--bg-alt)', border: '1px solid var(--border)', color: 'var(--text-2)', cursor: 'pointer' }}
+        >
+          <option value={2000}>2000 blocks (~2.8h)</option>
+          <option value={4000}>4000 blocks (~5.5h)</option>
+          <option value={8000}>8000 blocks (~11h)</option>
+          <option value={16000}>16000 blocks (~22h)</option>
+        </select>
         <input
           className="search-input"
           value={agentFilter}
@@ -479,7 +492,7 @@ function Erc8004FeedInner() {
 
         {data && data.events.length === 0 && (
           <div style={{ textAlign: 'center', padding: '2rem 1rem', color: 'var(--muted)', fontSize: '0.8rem' }}>
-            No events found in the last ~2000 blocks.{agentFilter ? ` No events for agent ID “${agentFilter}”.` : ''}
+            No events found in the last ~{blockRange} blocks.{agentFilter ? ` No events for agent ID “${agentFilter}”.` : ''}
           </div>
         )}
 

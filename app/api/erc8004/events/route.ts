@@ -125,6 +125,7 @@ export async function GET(req: NextRequest) {
   const chainParam = req.nextUrl.searchParams.get('chain') ?? 'all';
   const limit      = Math.min(parseInt(req.nextUrl.searchParams.get('limit') ?? '50'), 100);
   const agentIdFilter = req.nextUrl.searchParams.get('agentId');
+  const blockRange = parseInt(req.nextUrl.searchParams.get('blockRange') ?? '2000');
 
   const targets = chainParam === 'all'
     ? Object.entries(CONTRACTS)
@@ -137,7 +138,7 @@ export async function GET(req: NextRequest) {
     targets.map(async ([, cfg]) => {
       try {
         const latest   = await getLatestBlock(cfg.rpcs);
-        const fromBlock = Math.max(0, latest - 2000); // ~7 days on Gnosis (~1.5s blocks)
+        const fromBlock = Math.max(0, latest - blockRange);
         const logs     = await getLogs(cfg.rpcs, cfg.address, fromBlock, latest);
         const parsed   = logs.map(l => parseLog(l, cfg.chain, cfg.chainId, cfg.address));
         allEvents.push(...parsed);
