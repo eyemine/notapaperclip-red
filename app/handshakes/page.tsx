@@ -73,12 +73,7 @@ function outcomeClass(tag: string) {
   return 'pill pill-grey';
 }
 
-const CHAINS = [
-  { key: 'base',        label: 'Base',         chainId: 8453,  explorer: 'https://basescan.org/tx/' },
-  { key: 'baseSepolia', label: 'Base Sepolia', chainId: 84532, explorer: 'https://sepolia.basescan.org/tx/' },
-  { key: 'ethereum',    label: 'Ethereum',     chainId: 1,     explorer: 'https://etherscan.io/tx/' },
-  { key: 'gnosis',      label: 'Gnosis',       chainId: 100,   explorer: 'https://gnosisscan.io/tx/' },
-];
+import { CHAIN_ORDER, CHAINS } from '../../lib/chains';
 
 interface OnChainAgent {
   found:       boolean;
@@ -335,7 +330,7 @@ function HandshakesPageInner() {
   }
 
   const displayList = (mode === 'agent' || mode === 'token' || mode === 'email') ? handshakes : (single ? [single] : []);
-  const chainCfg = CHAINS.find(c => c.key === chain) ?? CHAINS[0];
+  const chainCfg = CHAINS[chain] ?? CHAINS.gnosis;
 
   return (
     <div className="page-wrap">
@@ -354,7 +349,7 @@ function HandshakesPageInner() {
         {(
           [
             { key: 'token', label: 'By ERC-8004 Token ID' },
-            { key: 'agent', label: 'By Agent Name' },
+            { key: 'agent', label: 'By GhostAgent Name' },
             { key: 'email', label: 'By NFTmail Address' },
             { key: 'cert',  label: 'By Cert Hash' },
           ] as { key: LookupMode; label: string }[]
@@ -372,15 +367,19 @@ function HandshakesPageInner() {
       {/* Chain selector — shown for token / agent / email modes */}
       {mode !== 'cert' && (
         <div style={{ display: 'flex', gap: '0.375rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
-          {CHAINS.map(c => (
-            <button key={c.key}
-              className={chain === c.key ? 'btn-primary' : 'btn-secondary'}
-              style={{ fontSize: '0.72rem', padding: '0.25rem 0.75rem', borderRadius: 99 }}
-              onClick={() => { setChain(c.key); setErc8004Card(null); }}
-            >
-              {c.label}
-            </button>
-          ))}
+          {CHAIN_ORDER.map(key => {
+            const c = CHAINS[key];
+            if (!c) return null;
+            return (
+              <button key={c.key}
+                className={chain === c.key ? 'btn-primary' : 'btn-secondary'}
+                style={{ fontSize: '0.72rem', padding: '0.25rem 0.75rem', borderRadius: 99 }}
+                onClick={() => { setChain(c.key); setErc8004Card(null); }}
+              >
+                {c.label}
+              </button>
+            );
+          })}
         </div>
       )}
 

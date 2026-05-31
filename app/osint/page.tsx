@@ -3,13 +3,7 @@
 import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Erc8004CardPanel } from '../components/Erc8004CardPanel';
-
-const CHAINS = [
-  { key: 'base',        label: 'Base',         chainId: 8453,  explorer: 'https://basescan.org/tx/' },
-  { key: 'baseSepolia', label: 'Base Sepolia', chainId: 84532, explorer: 'https://sepolia.basescan.org/tx/' },
-  { key: 'ethereum',    label: 'Ethereum',     chainId: 1,     explorer: 'https://etherscan.io/tx/' },
-  { key: 'gnosis',      label: 'Gnosis',       chainId: 100,   explorer: 'https://gnosisscan.io/tx/' },
-];
+import { CHAIN_ORDER, CHAINS } from '../../lib/chains';
 
 type LookupMode = 'agent' | 'token' | 'email';
 
@@ -31,6 +25,8 @@ interface FootprintData {
     mcpServers: string[];
     gnsName: string | null;
     hasX402Capability: boolean;
+    nftImage?: string | null;
+    nftImageSource?: 'paired' | 'beacon' | null;
     ensSocial?: {
       ensName: string | null;
       name: string | null;
@@ -75,6 +71,13 @@ interface FootprintData {
     a2aEndpoint: string | null;
     x402Support: boolean | null;
     explorerUrl: string;
+    binding: {
+      bindingContract: string;
+      tokenStandard: string;
+      tokenContract: string;
+      tokenId: string;
+      verified: boolean;
+    } | null;
     pairedAgent: { name: string; chain: string; agentId: number } | null;
   } | null;
 }
@@ -173,6 +176,7 @@ function OSINTDashboardContent() {
   const [chain, setChain] = useState('gnosis');
   const [agentName, setAgentName] = useState('');
   const [loading, setLoading] = useState(false);
+  const [loadingStep, setLoadingStep] = useState<string>('');
   const [footprint, setFootprint] = useState<FootprintData | null>(null);
   const [relations, setRelations] = useState<RelationsData | null>(null);
   const [exposure, setExposure] = useState<ExposureData | null>(null);
@@ -192,7 +196,7 @@ function OSINTDashboardContent() {
     
     if (urlChain) {
       // Validate chain exists in CHAINS array
-      const validChain = CHAINS.find(c => c.key === urlChain);
+      const validChain = CHAINS[urlChain];
       if (validChain) {
         setChain(urlChain);
       } else {
@@ -202,62 +206,43 @@ function OSINTDashboardContent() {
     }
     
     if (urlAgent) {
+      const activeChain = (urlChain && CHAINS[urlChain]) ? urlChain : 'gnosis';
       setAgentName(urlAgent);
-      // Auto-trigger search if we have URL parameters
-      setTimeout(() => {
-        handleAnalyze();
-      }, 100);
+      setChain(activeChain);
+      setTimeout(() => fireQueries(encodeURIComponent(urlAgent.trim()), `&chain=${activeChain}`), 50);
     }
   }, [searchParams]);
 
-  async function handleAnalyze() {
-    if (!agentName.trim()) return;
-    
-    setLoading(true);
-    setError(null);
-    setFootprint(null);
-    setRelations(null);
-    setExposure(null);
-    setGlassbox(null);
+  function fireQueries(enc: string, cp: string) {
+    setLoading(true); setError(null); setLoadingStep('Querying ERC-8004 registry…');
+    setFootprint(null); setRelations(null); setExposure(null); setX402(null); setGlassbox(null);
+    let pending = 5;
+    const done = () => { if (--pending <= 0) { setLoading(false); setLoadingStep(''); } };
 
-    try {
-      // Build query based on mode
-      let query = agentName.trim();
-      if (mode === 'token' && !query.startsWith('#')) {
-        query = `#${query}`;
-      }
-      
-      const encodedQuery = encodeURIComponent(query);
-      const chainParam = mode === 'token' ? `&chain=${chain}` : '';
-      const [footprintRes, relationsRes, exposureRes, x402Res, glassboxRes] = await Promise.all([
-        fetch(`/api/osint/footprint?agent=${encodedQuery}${chainParam}`),
-        fetch(`/api/osint/relations?agent=${encodedQuery}${chainParam}`),
-        fetch(`/api/osint/exposure?agent=${encodedQuery}${chainParam}`),
-        fetch(`/api/x402/probe?agent=${encodedQuery}${chainParam}`),
-        fetch(`/api/osint/glassbox-enhanced?agent=${encodedQuery}`)
-      ]);
+    fetch(`/api/osint/footprint?agent=${enc}${cp}`)
+      .then(r => r.ok ? r.json() : r.json().then((e: any) => Promise.reject(new Error(e.error || 'Footprint failed'))))
+      .then(d => { setFootprint(d); setLoadingStep('Mapping agent network…'); done(); })
+      .catch((e: any) => { setError(e.message || 'Failed to analyze agent'); setLoading(false); setLoadingStep(''); });
 
-      if (!footprintRes.ok) {
-        const err = await footprintRes.json();
-        throw new Error(err.error || 'Failed to fetch footprint');
-      }
+    fetch(`/api/osint/relations?agent=${enc}${cp}`)
+      .then(r => r.ok ? r.json() : null).then(d => { setRelations(d); done(); }).catch(done);
 
-      const footprintData = await footprintRes.json();
-      const relationsData = relationsRes.ok ? await relationsRes.json() : null;
-      const exposureData = exposureRes.ok ? await exposureRes.json() : null;
-      const x402Data = x402Res.ok ? await x402Res.json() : null;
-      const glassboxData = glassboxRes.ok ? await glassboxRes.json() : null;
+    fetch(`/api/osint/exposure?agent=${enc}${cp}`)
+      .then(r => r.ok ? r.json() : null).then(d => { setExposure(d); setLoadingStep('Checking x402…'); done(); }).catch(done);
 
-      setFootprint(footprintData);
-      setRelations(relationsData);
-      setExposure(exposureData);
-      setX402(x402Data);
-      setGlassbox(glassboxData);
-    } catch (err: any) {
-      setError(err.message || 'Failed to analyze agent');
-    } finally {
-      setLoading(false);
-    }
+    fetch(`/api/x402/probe?agent=${enc}${cp}`)
+      .then(r => r.ok ? r.json() : null).then(d => { setX402(d); setLoadingStep('Collecting glassbox data…'); done(); }).catch(done);
+
+    fetch(`/api/osint/glassbox-enhanced?agent=${enc}${cp}`)
+      .then(r => r.ok ? r.json() : null).then(d => { setGlassbox(d); done(); }).catch(done);
+  }
+
+  function handleAnalyze() {
+    const q = agentName.trim();
+    if (!q) return;
+    let query = q;
+    if (mode === 'token' && !query.startsWith('#')) query = `#${query}`;
+    fireQueries(encodeURIComponent(query), `&chain=${chain}`);
   }
 
   return (
@@ -267,7 +252,7 @@ function OSINTDashboardContent() {
         <h1>OSINT Intelligence</h1>
         <p>
           Agent footprint analysis, network mapping, and exposure assessment.
-          Search by agent name, ERC-8004 token ID, or NFTmail address.
+          Search by GhostAgent name, ERC-8004 token ID, or NFTmail address.
         </p>
       </div>
 
@@ -276,7 +261,7 @@ function OSINTDashboardContent() {
         {(
           [
             { key: 'token', label: 'By ERC-8004 Token ID' },
-            { key: 'agent', label: 'By Agent Name' },
+            { key: 'agent', label: 'By GhostAgent Name' },
             { key: 'email', label: 'By NFTmail Address' },
           ] as { key: LookupMode; label: string }[]
         ).map(({ key, label }) => (
@@ -293,7 +278,10 @@ function OSINTDashboardContent() {
       {/* Chain selector — shown for token / agent modes */}
       {mode !== 'email' && (
         <div style={{ display: 'flex', gap: '0.375rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
-          {CHAINS.map(c => (
+          {CHAIN_ORDER.map(key => {
+            const c = CHAINS[key];
+            if (!c) return null;
+            return (
             <button key={c.key}
               className={chain === c.key ? 'btn-primary' : 'btn-secondary'}
               style={{ fontSize: '0.72rem', padding: '0.25rem 0.75rem', borderRadius: 99 }}
@@ -301,7 +289,8 @@ function OSINTDashboardContent() {
             >
               {c.label}
             </button>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -314,8 +303,8 @@ function OSINTDashboardContent() {
           onKeyDown={(e) => e.key === 'Enter' && handleAnalyze()}
           placeholder={
             mode === 'email'  ? 'e.g. ghostagent_@nftmail.box'
-            : mode === 'agent' ? 'Agent name, e.g. ghostagent'
-            : `ERC-8004 token ID on ${CHAINS.find(c => c.key === chain)?.label || 'Gnosis'}, e.g. 3199`
+            : mode === 'agent' ? 'GhostAgent name, e.g. ghostagent'
+            : `ERC-8004 token ID on ${CHAINS[chain]?.label || 'Gnosis'}, e.g. 3199`
           }
           className="search-input"
           autoComplete="off" spellCheck={false}
@@ -390,33 +379,34 @@ function OSINTDashboardContent() {
         </div>
       )}
 
-        {/* Loading State */}
-      {loading && (
-        <div style={{ 
-          display: 'flex', 
-          flexDirection: 'column', 
-          alignItems: 'center', 
-          justifyContent: 'center', 
-          padding: '3rem',
-          gap: '1rem',
-          border: '1px solid var(--border)',
-          borderRadius: 'var(--radius)',
-          background: 'var(--bg-alt)'
-        }}>
-          <div style={{ 
-            width: 56, 
-            height: 56, 
-            animation: 'spin 1.4s linear infinite',
-            opacity: 0.75
-          }}>
+      {/* Full spinner — only while no data has arrived yet */}
+      {loading && !footprint && !relations && !exposure && !x402 && !glassbox && (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '3rem', gap: '1rem', border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: 'var(--bg-alt)' }}>
+          <div style={{ width: 56, height: 56, animation: 'spin 1.4s linear infinite', opacity: 0.75 }}>
             <svg viewBox="0 0 34 32" xmlns="http://www.w3.org/2000/svg" width="56" height="56">
               <path fill="currentColor" d="M5.587,31.867c2.015,0,4.183-1.026,5.707-2.551l16.883-17.169c0.866-0.866,1.348-2.014,1.356-3.231c0.009-1.22-0.459-2.364-1.316-3.222c-1.768-1.767-4.661-1.751-6.462,0.048L8.814,19.272c-0.203,0.213-0.196,0.552,0.018,0.756c0.213,0.204,0.55,0.196,0.756-0.017L22.52,6.489c1.373-1.374,3.591-1.391,4.941-0.04c0.653,0.653,1.01,1.526,1.003,2.458c-0.006,0.935-0.377,1.816-1.046,2.486L10.535,28.563c-1.776,1.775-5.426,3.385-7.615,1.194c-1.037-1.037-1.557-2.309-1.503-3.679c0.053-1.36,0.693-2.72,1.807-3.833L22.52,2.661c1.026-1.026,2.629-1.62,4.396-1.626c0.011,0,0.021,0,0.032,0c1.752,0,3.333,0.577,4.342,1.586c1.016,1.015,1.594,2.609,1.587,4.374c-0.007,1.767-0.601,3.369-1.634,4.402L16.348,26.882c-0.205,0.213-0.198,0.551,0.015,0.756c0.212,0.204,0.551,0.198,0.755-0.015l14.888-15.478c1.225-1.224,1.932-3.1,1.939-5.146c0.009-2.047-0.684-3.919-1.899-5.134c-1.208-1.208-3.064-1.9-5.098-1.9c-0.012,0-0.024,0-0.036,0c-2.047,0.008-3.923,0.715-5.15,1.942L2.465,21.492c-2.701,2.701-2.827,6.495-0.301,9.021C3.111,31.459,4.318,31.867,5.587,31.867z"/>
             </svg>
           </div>
           <div style={{ fontSize: '0.9rem', color: 'var(--muted)', textAlign: 'center' }}>
-            <div>Analyzing glassbox transparency...</div>
-            <div style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>Collecting OSINT intelligence</div>
+            <div>{loadingStep || 'Querying ERC-8004 registry…'}</div>
+            <div style={{ fontSize: '0.8rem', marginTop: '0.5rem', opacity: 0.6 }}>Collecting OSINT intelligence</div>
           </div>
+        </div>
+      )}
+
+      {/* Compact progress bar — shown once data starts arriving but queries still pending */}
+      {loading && (footprint || relations || exposure || x402 || glassbox) && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.5rem 0.875rem', marginBottom: '0.75rem', borderRadius: 'var(--radius)', background: 'var(--bg-alt)', border: '1px solid var(--border)', fontSize: '0.8rem', color: 'var(--muted)' }}>
+          <div style={{ width: 16, height: 16, animation: 'spin 1.4s linear infinite', flexShrink: 0 }}>
+            <svg viewBox="0 0 34 32" xmlns="http://www.w3.org/2000/svg" width="16" height="16">
+              <path fill="currentColor" d="M5.587,31.867c2.015,0,4.183-1.026,5.707-2.551l16.883-17.169c0.866-0.866,1.348-2.014,1.356-3.231c0.009-1.22-0.459-2.364-1.316-3.222c-1.768-1.767-4.661-1.751-6.462,0.048L8.814,19.272c-0.203,0.213-0.196,0.552,0.018,0.756c0.213,0.204,0.55,0.196,0.756-0.017L22.52,6.489c1.373-1.374,3.591-1.391,4.941-0.04c0.653,0.653,1.01,1.526,1.003,2.458c-0.006,0.935-0.377,1.816-1.046,2.486L10.535,28.563c-1.776,1.775-5.426,3.385-7.615,1.194c-1.037-1.037-1.557-2.309-1.503-3.679c0.053-1.36,0.693-2.72,1.807-3.833L22.52,2.661c1.026-1.026,2.629-1.62,4.396-1.626c0.011,0,0.021,0,0.032,0c1.752,0,3.333,0.577,4.342,1.586c1.016,1.015,1.594,2.609,1.587,4.374c-0.007,1.767-0.601,3.369-1.634,4.402L16.348,26.882c-0.205,0.213-0.198,0.551,0.015,0.756c0.212,0.204,0.551,0.198,0.755-0.015l14.888-15.478c1.225-1.224,1.932-3.1,1.939-5.146c0.009-2.047-0.684-3.919-1.899-5.134c-1.208-1.208-3.064-1.9-5.098-1.9c-0.012,0-0.024,0-0.036,0c-2.047,0.008-3.923,0.715-5.15,1.942L2.465,21.492c-2.701,2.701-2.827,6.495-0.301,9.021C3.111,31.459,4.318,31.867,5.587,31.867z"/>
+            </svg>
+          </div>
+          <span>{loadingStep || 'Still loading…'}</span>
+          <div style={{ flex: 1, height: 2, borderRadius: 1, background: 'var(--border)', overflow: 'hidden' }}>
+            <div style={{ height: '100%', width: `${Math.round(([footprint,relations,exposure,x402,glassbox].filter(Boolean).length / 5) * 100)}%`, background: 'var(--red)', transition: 'width 0.4s ease', borderRadius: 1 }} />
+          </div>
+          <span style={{ fontSize: '0.72rem' }}>{[footprint,relations,exposure,x402,glassbox].filter(Boolean).length}/5</span>
         </div>
       )}
 
@@ -431,7 +421,23 @@ function OSINTDashboardContent() {
             {/* Footprint */}
             {footprint && (
               <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: 'var(--card)', padding: '1.5rem' }}>
-                <h2 style={{ marginBottom: '1rem', fontSize: '1.25rem', fontWeight: 700, color: 'var(--text)' }}>Digital Footprint</h2>
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '1rem', marginBottom: '1rem' }}>
+                {footprint.offChain.nftImage && (
+                  <div style={{ flexShrink: 0, textAlign: 'center' }}>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={footprint.offChain.nftImage}
+                      alt="Agent NFT"
+                      style={{ width: 80, height: 80, borderRadius: 10, objectFit: 'cover', border: '1px solid var(--border)', background: 'var(--bg-alt)' }}
+                      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                    />
+                    <div style={{ fontSize: '0.6rem', color: 'var(--muted)', marginTop: '0.3rem', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                      {footprint.offChain.nftImageSource === 'paired' ? 'Paired NFT' : 'Beacon NFT'}
+                    </div>
+                  </div>
+                )}
+                <h2 style={{ marginBottom: 0, fontSize: '1.25rem', fontWeight: 700, color: 'var(--text)', alignSelf: 'center' }}>Digital Footprint</h2>
+              </div>
                 
                 <div style={{ display: 'grid', gap: '1.5rem', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}>
                   {/* On-chain */}
