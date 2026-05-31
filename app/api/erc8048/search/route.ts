@@ -80,6 +80,81 @@ async function fetchAgentMetadata(agentId: number): Promise<Record<string, strin
   return metadata;
 }
 
+const METADATA_SET_ABI = [
+  {
+    anonymous: false,
+    inputs: [
+      { indexed: true, internalType: 'uint256', name: 'tokenId', type: 'uint256' },
+      { indexed: true, internalType: 'string', name: 'key', type: 'string' },
+      { indexed: false, internalType: 'bytes', name: 'value', type: 'bytes' },
+    ],
+    name: 'MetadataSet',
+    type: 'event',
+  },
+] as const;
+
+/**
+ * Search for agents with a specific metadata key/value pair using getLogs
+ */
+async function searchByKeyValue(key: string, value: string): Promise<Array<{ agentId: number; metadata: Record<string, string> }>> {
+  try {
+    const logs = await client.getLogs({
+      address: REGISTRY_ADDRESS,
+      event: METADATA_SET_ABI[0],
+      fromBlock: 45000000n, // Approximate deployment block
+      toBlock: 'latest',
+    });
+
+    const results: Array<{ agentId: number; metadata: Record<string, string> }> = [];
+
+    for (const log of logs) {
+      if (log.args.key === key) {
+        const decodedValue = decodeStringValue(log.args.value as string);
+        if (decodedValue === value) {
+          // Fetch all metadata for this agent
+          const metadata = await fetchAgentMetadata(Number(log.args.tokenId));
+          results.push({ agentId: Number(log.args.tokenId), metadata });
+        }
+      }
+    }
+
+    return results;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Search for agents with agent-binding entries pointing to a specific contract/tokenId
+ */
+async function searchByBinding(bindingContract: string, tokenId: string): Promise<Array<{ agentId: number; metadata: Record<string, string> }>> {
+  try {
+    const logs = await client.getLogs({
+      address: REGISTRY_ADDRESS,
+      event: METADATA_SET_ABI[0],
+      fromBlock: 45000000n,
+      toBlock: 'latest',
+    });
+
+    const results: Array<{ agentId: number; metadata: Record<string, string> }> = [];
+
+    for (const log of logs) {
+      if (log.args.key === 'agent-binding') {
+        const bindingValue = decodeStringValue(log.args.value as string);
+        // Check if binding matches the contract/tokenId
+        if (bindingValue.includes(bindingContract.toLowerCase()) && bindingValue.includes(tokenId)) {
+          const metadata = await fetchAgentMetadata(Number(log.args.tokenId));
+          results.push({ agentId: Number(log.args.tokenId), metadata });
+        }
+      }
+    }
+
+    return results;
+  } catch {
+    return [];
+  }
+}
+
 interface SearchRequest {
   mode: 'byAgentId' | 'byBinding' | 'byKey';
   agentId?: number;
@@ -113,18 +188,20 @@ export async function POST(req: NextRequest) {
     }
 
     if (mode === 'byKey' && body.key && body.value) {
-      // Search by key/value - requires indexer, not implemented yet
+      // Search by key/value using direct RPC
+      const results = await searchByKeyValue(body.key, body.value);
       return NextResponse.json<SearchResponse>({
-        success: false,
-        error: 'Key/value search requires indexer support - not yet implemented',
+        success: true,
+        results,
       });
     }
 
-    if (mode === 'byBinding') {
-      // Search by binding contract/tokenId - requires indexer, not implemented yet
+    if (mode === 'byBinding' && body.bindingContract && body.tokenId) {
+      // Search by binding contract/tokenId using direct RPC
+      const results = await searchByBinding(body.bindingContract, body.tokenId);
       return NextResponse.json<SearchResponse>({
-        success: false,
-        error: 'Binding search requires indexer support - not yet implemented',
+        success: true,
+        results,
       });
     }
 
