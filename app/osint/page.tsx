@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, Suspense } from 'react';
+import { useState, useEffect, Suspense, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Erc8004CardPanel } from '../components/Erc8004CardPanel';
 import { CHAIN_ORDER, CHAINS } from '../../lib/chains';
@@ -183,6 +183,7 @@ function OSINTDashboardContent() {
   const [x402, setX402] = useState<X402Data | null>(null);
   const [glassbox, setGlassbox] = useState<GlassboxData | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   // Handle URL parameters
   useEffect(() => {
@@ -214,27 +215,47 @@ function OSINTDashboardContent() {
   }, [searchParams]);
 
   function fireQueries(enc: string, cp: string) {
+    // Cancel any previous requests
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     setLoading(true); setError(null); setLoadingStep('Querying ERC-8004 registry…');
     setFootprint(null); setRelations(null); setExposure(null); setX402(null); setGlassbox(null);
     let pending = 5;
-    const done = () => { if (--pending <= 0) { setLoading(false); setLoadingStep(''); } };
+    const done = () => { if (--pending <= 0) { setLoading(false); setLoadingStep(''); abortControllerRef.current = null; } };
 
-    fetch(`/api/osint/footprint?agent=${enc}${cp}`)
+    const signal = controller.signal;
+
+    fetch(`/api/osint/footprint?agent=${enc}${cp}`, { signal })
       .then(r => r.ok ? r.json() : r.json().then((e: any) => Promise.reject(new Error(e.error || 'Footprint failed'))))
       .then(d => { setFootprint(d); setLoadingStep('Mapping agent network…'); done(); })
-      .catch((e: any) => { setError(e.message || 'Failed to analyze agent'); setLoading(false); setLoadingStep(''); });
+      .catch((e: any) => { if (e.name !== 'AbortError') { setError(e.message || 'Failed to analyze agent'); setLoading(false); setLoadingStep(''); } });
 
-    fetch(`/api/osint/relations?agent=${enc}${cp}`)
-      .then(r => r.ok ? r.json() : null).then(d => { setRelations(d); done(); }).catch(done);
+    fetch(`/api/osint/relations?agent=${enc}${cp}`, { signal })
+      .then(r => r.ok ? r.json() : null).then(d => { setRelations(d); done(); }).catch((e: any) => { if (e.name !== 'AbortError') done(); });
 
-    fetch(`/api/osint/exposure?agent=${enc}${cp}`)
-      .then(r => r.ok ? r.json() : null).then(d => { setExposure(d); setLoadingStep('Checking x402…'); done(); }).catch(done);
+    fetch(`/api/osint/exposure?agent=${enc}${cp}`, { signal })
+      .then(r => r.ok ? r.json() : null).then(d => { setExposure(d); setLoadingStep('Checking x402…'); done(); }).catch((e: any) => { if (e.name !== 'AbortError') done(); });
 
-    fetch(`/api/x402/probe?agent=${enc}${cp}`)
-      .then(r => r.ok ? r.json() : null).then(d => { setX402(d); setLoadingStep('Collecting glassbox data…'); done(); }).catch(done);
+    fetch(`/api/x402/probe?agent=${enc}${cp}`, { signal })
+      .then(r => r.ok ? r.json() : null).then(d => { setX402(d); setLoadingStep('Collecting glassbox data…'); done(); }).catch((e: any) => { if (e.name !== 'AbortError') done(); });
 
-    fetch(`/api/osint/glassbox-enhanced?agent=${enc}${cp}`)
-      .then(r => r.ok ? r.json() : null).then(d => { setGlassbox(d); done(); }).catch(done);
+    fetch(`/api/osint/glassbox-enhanced?agent=${enc}${cp}`, { signal })
+      .then(r => r.ok ? r.json() : null).then(d => { setGlassbox(d); done(); }).catch((e: any) => { if (e.name !== 'AbortError') done(); });
+  }
+
+  function handleCancel() {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    setLoading(false);
+    setLoadingStep('');
+    setError('Query cancelled');
   }
 
   function handleAnalyze() {
@@ -467,6 +488,13 @@ function OSINTDashboardContent() {
             <div style={{ height: '100%', width: `${Math.round(([footprint,relations,exposure,x402,glassbox].filter(Boolean).length / 5) * 100)}%`, background: 'var(--red)', transition: 'width 0.4s ease', borderRadius: 1 }} />
           </div>
           <span style={{ fontSize: '0.72rem' }}>{[footprint,relations,exposure,x402,glassbox].filter(Boolean).length}/5</span>
+          <button
+            onClick={handleCancel}
+            className="btn-secondary"
+            style={{ fontSize: '0.7rem', padding: '0.25rem 0.6rem', borderRadius: 99, flexShrink: 0 }}
+          >
+            Cancel
+          </button>
         </div>
       )}
 
