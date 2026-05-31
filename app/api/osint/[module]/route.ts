@@ -505,29 +505,35 @@ async function analyzeFootprint(agent: string, chain?: string): Promise<AgentFoo
         }).then(r => r.json() as Promise<{ exists?: boolean }>).catch(() => null)
       : Promise.resolve(null),
 
-    // Phase 4a: Safe balance + tx history
+    // Phase 4a: Safe balance + tx history (chain-aware)
     safeAddress
       ? (async () => {
-          const gnosisscanKey = process.env.ETHERSCAN_API_KEY || '';
+          const chainConfig = CHAINS[chain || 'gnosis'] || CHAINS.gnosis;
+          const chainRpc = chainConfig.rpc[0];
+          const chainExplorer = chainConfig.explorer;
+          const apiKey = process.env.ETHERSCAN_API_KEY || '';
+
           const [balanceRes, txRes, safeTxRes] = await Promise.all([
-            fetch(GNOSIS_RPC, {
+            fetch(chainRpc, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               signal: AbortSignal.timeout(3000),
               body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_getBalance', params: [safeAddress, 'latest'] }),
             }).catch(() => null),
-            gnosisscanKey
-              ? fetch(`${GNOSISSCAN_API}?module=account&action=txlist&address=${safeAddress}&startblock=0&endblock=99999999&sort=asc&apikey=${gnosisscanKey}`, { signal: AbortSignal.timeout(5000) }).catch(() => null)
+            apiKey
+              ? fetch(`${chainExplorer}/api?module=account&action=txlist&address=${safeAddress}&startblock=0&endblock=99999999&sort=asc&apikey=${apiKey}`, { signal: AbortSignal.timeout(5000) }).catch(() => null)
               : Promise.resolve(null),
-            fetch(`https://safe-transaction-gnosis-chain.safe.global/api/v1/safes/${safeAddress}/multisig-transactions/?limit=1&executed=true`, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(4000) }).catch(() => null),
+            chainConfig.key === 'gnosis'
+              ? fetch(`https://safe-transaction-gnosis-chain.safe.global/api/v1/safes/${safeAddress}/multisig-transactions/?limit=1&executed=true`, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(4000) }).catch(() => null)
+              : Promise.resolve(null),
           ]);
           return { balanceRes, txRes, safeTxRes };
         })()
       : Promise.resolve(null),
 
-    // Phase 4b: TBA code check
+    // Phase 4b: TBA code check (chain-aware)
     tbaAddress
-      ? fetch(GNOSIS_RPC, {
+      ? fetch((CHAINS[chain || 'gnosis'] || CHAINS.gnosis).rpc[0], {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           signal: AbortSignal.timeout(3000),
