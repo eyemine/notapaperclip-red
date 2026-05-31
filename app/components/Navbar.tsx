@@ -11,6 +11,7 @@ const NAV_ITEMS = [
   { href: '/a2a',           label: 'A2A Validator'   },
   { href: '/mcp',           label: 'MCP Inspector'   },
   { href: '/osint',         label: 'OSINT'           },
+  { href: '/erc8048',       label: 'ERC-8048'        },
   { href: '/verify',        label: 'Proof Lookup'    },
 ];
 
