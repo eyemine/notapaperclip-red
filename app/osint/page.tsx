@@ -473,19 +473,6 @@ function OSINTDashboardContent() {
         {/* Results */}
         {(footprint || relations || exposure || x402) && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-            {/* ERC-8048 Metadata display */}
-            {(footprint as any)?.erc8048Metadata && (
-              <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: 'var(--card)', padding: '1.5rem' }}>
-                <h3 style={{ fontSize: '1rem', fontWeight: 'bold', marginBottom: '1rem' }}>ERC-8048 Metadata</h3>
-                {Object.entries((footprint as any).erc8048Metadata).map(([key, value]) => (
-                  <div key={key} style={{ marginBottom: '0.75rem', paddingBottom: '0.75rem', borderBottom: '1px solid var(--border)' }}>
-                    <div style={{ fontWeight: 500, fontSize: '0.8rem', marginBottom: '0.25rem' }}>{key}</div>
-                    <div style={{ fontSize: '0.8rem', color: 'var(--text-2)', wordBreak: 'break-all' }}>{String(value)}</div>
-                  </div>
-                ))}
-              </div>
-            )}
-
             {/* ERC-8004 Card panel (external agents like Normies) */}
             {footprint?.erc8004Card && (
               <Erc8004CardPanel card={footprint.erc8004Card} />
@@ -604,6 +591,23 @@ function OSINTDashboardContent() {
                       </div>
                     </div>
                   </div>
+
+                  {/* ERC-8048 Metadata */}
+                  {(footprint as any)?.erc8048Metadata && (
+                    <div>
+                      <h3 style={{ marginBottom: '0.75rem', fontSize: '0.875rem', fontWeight: 600, color: 'var(--red)' }}>ERC-8048 Metadata</h3>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', fontSize: '0.875rem' }}>
+                        {Object.entries((footprint as any).erc8048Metadata).map(([key, value]) => (
+                          <div key={key} style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>
+                            <span style={{ color: 'var(--muted)', fontSize: '0.75rem' }}>{key}</span>
+                            <span className="mono" style={{ color: 'var(--text)', fontSize: '0.8rem', wordBreak: 'break-all' }}>
+                              {String(value).length > 30 ? `${String(value).slice(0, 30)}…` : String(value)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* ENS Social */}
