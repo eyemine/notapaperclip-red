@@ -17,16 +17,15 @@ export function validateAgentMetadata(data: any): ValidationResult {
     return { isValid: false, errors };
   }
 
-  // Required fields
-  if (!data.name || typeof data.name !== 'string') {
-    errors.push('Agent name is required and must be a string');
+  // Optional fields with type validation (relaxed to allow sparse metadata)
+  if (data.name && typeof data.name !== 'string') {
+    errors.push('Agent name must be a string');
   }
 
-  if (!data.description || typeof data.description !== 'string') {
-    errors.push('Agent description is required and must be a string');
+  if (data.description && typeof data.description !== 'string') {
+    errors.push('Agent description must be a string');
   }
 
-  // Optional fields with type validation
   if (data.image && typeof data.image !== 'string') {
     errors.push('Agent image must be a string URL');
   }
