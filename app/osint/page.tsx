@@ -5,7 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import { Erc8004CardPanel } from '../components/Erc8004CardPanel';
 import { CHAIN_ORDER, CHAINS } from '../../lib/chains';
 
-type LookupMode = 'agent' | 'token' | 'email';
+type LookupMode = 'agent' | 'token' | 'email' | 'erc8048';
 
 interface FootprintData {
   agent: string;
@@ -240,6 +240,47 @@ function OSINTDashboardContent() {
   function handleAnalyze() {
     const q = agentName.trim();
     if (!q) return;
+
+    if (mode === 'erc8048') {
+      // ERC-8048 metadata search - separate logic
+      setLoading(true);
+      setError('');
+      setFootprint(null); setRelations(null); setExposure(null); setX402(null); setGlassbox(null);
+
+      fetch('/api/erc8048/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mode: 'byAgentId',
+          agentId: parseInt(q),
+        }),
+      })
+        .then(r => r.json())
+        .then(d => {
+          setLoading(false);
+          if (d.success && d.results) {
+            // Display ERC-8048 metadata in the footprint area
+            const result = d.results[0];
+            if (result) {
+              setFootprint({
+                agent: q,
+                onChain: { safeAddress: null, tbaAddress: null, totalTransactions: 0, firstSeen: null, lastSeen: null, balances: [] },
+                offChain: { tld: '', tier: '', principal: null, surgeScore: 0, mcpServers: [], gnsName: null, hasX402Capability: false },
+                exposure: { hasPublicEndpoints: false, hasMCPServers: false, hasGNSName: false, hasX402Capability: false, riskLevel: 'low' },
+                erc8048Metadata: result.metadata,
+              } as any);
+            }
+          } else {
+            setError(d.error || 'No ERC-8048 metadata found');
+          }
+        })
+        .catch((e) => {
+          setLoading(false);
+          setError(String(e));
+        });
+      return;
+    }
+
     let query = q;
     if (mode === 'token' && !query.startsWith('#')) query = `#${query}`;
     fireQueries(encodeURIComponent(query), `&chain=${chain}`);
@@ -263,6 +304,7 @@ function OSINTDashboardContent() {
             { key: 'token', label: 'By ERC-8004 Token ID' },
             { key: 'agent', label: 'By GhostAgent Name' },
             { key: 'email', label: 'By NFTmail Address' },
+            { key: 'erc8048', label: 'ERC-8048 Metadata' },
           ] as { key: LookupMode; label: string }[]
         ).map(({ key, label }) => (
           <button key={key}
@@ -304,6 +346,7 @@ function OSINTDashboardContent() {
           placeholder={
             mode === 'email'  ? 'e.g. ghostagent_@nftmail.box'
             : mode === 'agent' ? 'GhostAgent name, e.g. ghostagent'
+            : mode === 'erc8048' ? 'ERC-8004 agent ID, e.g. 3199'
             : `ERC-8004 token ID on ${CHAINS[chain]?.label || 'Gnosis'}, e.g. 3199`
           }
           className="search-input"
@@ -370,6 +413,23 @@ function OSINTDashboardContent() {
             </p>
           </div>
         )}
+        {mode === 'erc8048' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+              {[{ label: '3199 (ghostagent)', val: '3199' }, { label: '3205 (eyemine)', val: '3205' }]
+                .map(ex => (
+                  <button key={ex.val} className="btn-secondary"
+                    style={{ fontSize: '0.7rem', padding: '0.25rem 0.625rem', borderRadius: 99 }}
+                    onClick={() => { setAgentName(ex.val); setError(''); }}>
+                    {ex.label}
+                  </button>
+                ))}
+            </div>
+            <p style={{ fontSize: '0.72rem', color: 'var(--muted)', margin: 0 }}>
+              ERC-8048 metadata from GhostAgentMetadataRegistry on Gnosis.
+            </p>
+          </div>
+        )}
         </div>
 
       {/* Error */}
@@ -413,6 +473,19 @@ function OSINTDashboardContent() {
         {/* Results */}
         {(footprint || relations || exposure || x402) && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+            {/* ERC-8048 Metadata display */}
+            {(footprint as any)?.erc8048Metadata && (
+              <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: 'var(--card)', padding: '1.5rem' }}>
+                <h3 style={{ fontSize: '1rem', fontWeight: 'bold', marginBottom: '1rem' }}>ERC-8048 Metadata</h3>
+                {Object.entries((footprint as any).erc8048Metadata).map(([key, value]) => (
+                  <div key={key} style={{ marginBottom: '0.75rem', paddingBottom: '0.75rem', borderBottom: '1px solid var(--border)' }}>
+                    <div style={{ fontWeight: 500, fontSize: '0.8rem', marginBottom: '0.25rem' }}>{key}</div>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-2)', wordBreak: 'break-all' }}>{String(value)}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+
             {/* ERC-8004 Card panel (external agents like Normies) */}
             {footprint?.erc8004Card && (
               <Erc8004CardPanel card={footprint.erc8004Card} />
