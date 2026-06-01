@@ -243,8 +243,8 @@ function Erc8004FeedInner() {
         >
           <option value={2000}>2000 blocks (~2.8h)</option>
           <option value={4000}>4000 blocks (~5.5h)</option>
-          <option value={8000}>8000 blocks (~11h)</option>
-          <option value={16000}>16000 blocks (~22h)</option>
+          <option value={7000}>7000 blocks (~10h)</option>
+          <option value={10000}>10000 blocks (~14h)</option>
         </select>
         <input
           className="search-input"
