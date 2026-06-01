@@ -1,12 +1,36 @@
 'use client';
 
+interface Binding {
+  bindingContract: string;
+  tokenStandard: string;
+  tokenContract: string;
+  tokenId: string;
+  verified: boolean;
+}
+
+interface NormieTraits {
+  Type: string; Gender: string; Age: string;
+  'Hair Style': string; 'Facial Feature': string;
+  Eyes: string; Expression: string; Accessory: string;
+}
+interface NormieCanvas {
+  actionPoints: number; level: number; isCustomized: boolean; delegate: string | null;
+}
+interface NormieInfo {
+  tokenId: number;
+  traits: NormieTraits | null;
+  canvas: NormieCanvas | null;
+  imageUrl: string; svgUrl: string; isAgent: boolean;
+}
 interface Card {
   agentId: number; chain: string; registry: string; agentURI: string;
   owner: string | null; name: string | null; description: string | null; image: string | null;
   services: Array<{ name: string; endpoint: string; version?: string }> | null;
   skills: Array<{ id?: string; name: string; description?: string; tags?: string[] }> | null;
   a2aEndpoint: string | null; x402Support: boolean | null; explorerUrl: string;
+  binding: Binding | null;
   pairedAgent: { name: string; chain: string; agentId: number } | null;
+  normies?: NormieInfo | null;
 }
 
 const ipfs = (u: string) => u?.startsWith('ipfs://') ? `https://ipfs.io/ipfs/${u.slice(7)}` : u;
@@ -58,6 +82,63 @@ export function Erc8004CardPanel({ card }: { card: Card }) {
           <h3 style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--red)', marginBottom: '0.6rem' }}>Services</h3>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', fontSize: '0.8rem' }}>
             {card.services.map((s, i) => <div key={i} style={row}><span style={m}>{s.name}{s.version ? ` v${s.version}` : ''}</span><a href={s.endpoint} target="_blank" rel="noopener noreferrer" style={{ ...lk, ...trunc }}>{s.endpoint.replace(/^https?:\/\//, '')}</a></div>)}
+          </div>
+        </div>
+      )}
+      {card.normies && (
+        <div style={{ marginTop: '1rem', borderTop: '1px solid var(--border)', paddingTop: '1rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem', flexWrap: 'wrap', gap: '0.4rem' }}>
+            <h3 style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--red)', margin: 0 }}>
+              Normie #{card.normies.tokenId}
+            </h3>
+            <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+              {card.normies.canvas && (
+                <>
+                  <span style={{ fontSize: '0.7rem', padding: '0.2rem 0.5rem', borderRadius: 999, background: 'rgba(99,102,241,0.1)', color: '#818cf8', border: '1px solid rgba(99,102,241,0.3)' }}>
+                    Lv {card.normies.canvas.level}
+                  </span>
+                  <span style={{ fontSize: '0.7rem', padding: '0.2rem 0.5rem', borderRadius: 999, background: 'rgba(245,158,11,0.1)', color: 'var(--amber)', border: '1px solid rgba(245,158,11,0.3)' }}>
+                    {card.normies.canvas.actionPoints} AP
+                  </span>
+                  {card.normies.canvas.isCustomized && (
+                    <span style={{ fontSize: '0.7rem', padding: '0.2rem 0.5rem', borderRadius: 999, background: 'rgba(16,185,129,0.1)', color: 'var(--green)', border: '1px solid rgba(16,185,129,0.3)' }}>Customized</span>
+                  )}
+                </>
+              )}
+              {card.normies.isAgent && (
+                <span style={{ fontSize: '0.7rem', padding: '0.2rem 0.5rem', borderRadius: 999, background: 'rgba(239,68,68,0.1)', color: 'var(--red)', border: '1px solid rgba(239,68,68,0.3)' }}>Agent Type</span>
+              )}
+            </div>
+          </div>
+          {card.normies.traits && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '0.4rem', fontSize: '0.75rem' }}>
+              {(Object.entries(card.normies.traits) as [string, string][]).map(([k, v]) => (
+                <div key={k} style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '0.3rem 0.5rem' }}>
+                  <div style={{ color: 'var(--muted)', fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{k}</div>
+                  <div style={{ fontWeight: 600, color: 'var(--text)', marginTop: '0.1rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{v}</div>
+                </div>
+              ))}
+            </div>
+          )}
+          <div style={{ marginTop: '0.6rem', display: 'flex', gap: '0.5rem' }}>
+            <a href={card.normies.svgUrl} target="_blank" rel="noopener noreferrer" style={{ ...lk, fontSize: '0.75rem' }}>SVG ↗</a>
+            <a href={`https://normies.art/normie/${card.normies.tokenId}`} target="_blank" rel="noopener noreferrer" style={{ ...lk, fontSize: '0.75rem' }}>View on normies.art ↗</a>
+          </div>
+        </div>
+      )}
+      {card.binding && (
+        <div style={{ marginTop: '1rem', borderTop: '1px solid var(--border)', paddingTop: '1rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.6rem' }}>
+            <h3 style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--red)', margin: 0 }}>ERC-8048 Binding</h3>
+            <span style={{ fontSize: '0.7rem', padding: '0.2rem 0.5rem', borderRadius: 999, background: card.binding.verified ? 'rgba(16,185,129,0.1)' : 'rgba(245,158,11,0.1)', color: card.binding.verified ? 'var(--green)' : 'var(--amber)', border: `1px solid ${card.binding.verified ? 'var(--green)' : 'var(--amber)'}` }}>
+              {card.binding.verified ? '✓ Verified on-chain' : '⚠ Unverified'}
+            </span>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', fontSize: '0.8rem' }}>
+            <div style={row}><span style={m}>Standard</span><span>{card.binding.tokenStandard}</span></div>
+            <div style={row}><span style={m}>Token Contract</span><a href={`${origin}/address/${card.binding.tokenContract}`} target="_blank" rel="noopener noreferrer" className="mono" style={{ ...lk, color: '#d97706' }}>{sh(card.binding.tokenContract)}</a></div>
+            <div style={row}><span style={m}>Token ID</span><span className="mono" style={{ fontSize: '0.75rem' }}>#{card.binding.tokenId}</span></div>
+            <div style={row}><span style={m}>Binding Contract</span><a href={`${origin}/address/${card.binding.bindingContract}`} target="_blank" rel="noopener noreferrer" className="mono" style={lk}>{sh(card.binding.bindingContract)}</a></div>
           </div>
         </div>
       )}

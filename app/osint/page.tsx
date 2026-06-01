@@ -80,6 +80,16 @@ interface FootprintData {
       verified: boolean;
     } | null;
     pairedAgent: { name: string; chain: string; agentId: number } | null;
+    normies?: {
+      tokenId: number;
+      traits: {
+        Type: string; Gender: string; Age: string;
+        'Hair Style': string; 'Facial Feature': string;
+        Eyes: string; Expression: string; Accessory: string;
+      } | null;
+      canvas: { actionPoints: number; level: number; isCustomized: boolean; delegate: string | null } | null;
+      imageUrl: string; svgUrl: string; isAgent: boolean;
+    } | null;
   } | null;
 }
 

@@ -15,6 +15,7 @@ import {
 } from './validation';
 import { cache, generateCacheKey } from './cache';
 import { monitoring } from './monitoring';
+import { getNormieData, type NormieData } from './normies-api';
 
 interface AgentMetadata {
   name: string;
@@ -55,6 +56,7 @@ interface Erc8004Card {
     chain: string;
     agentId: number;
   } | null;
+  normies: NormieData | null;
 }
 
 interface PairedAgent {
@@ -66,7 +68,6 @@ interface PairedAgent {
 
 class AgentService {
   private readonly WORKER_URL = 'https://nftmail-email-worker.richard-159.workers.dev';
-  private readonly NORMIES_API = 'https://api.normies.art/agents/metadata';
 
   /**
    * Get ERC-8004 agent card with enhanced data fetching
@@ -95,7 +96,7 @@ class AgentService {
             return null;
           }
 
-      // Fetch metadata, normies data, and paired agent in parallel (all independent)
+      // Fetch metadata, Normies data, and paired agent in parallel (all independent)
       const [metadataResult, normiesResult, pairedAgentResult] = await Promise.allSettled([
         fetch(tokenUri, { signal: AbortSignal.timeout(5000) })
           .then(r => r.ok ? r.json() : null)
@@ -105,38 +106,35 @@ class AgentService {
             return v.isValid ? v.data : null;
           })
           .catch(() => null),
-        chainKey === 'ethereum'
-          ? fetch(`${this.NORMIES_API}/${agentId}`, { signal: AbortSignal.timeout(3000) })
-              .then(r => r.ok ? r.json() : null)
-              .catch(() => null)
-          : Promise.resolve(null),
+        chainKey === 'ethereum' ? getNormieData(agentId) : Promise.resolve(null),
         this.getPairedAgent(owner, chainKey, agentId),
       ]);
 
       const metadata = metadataResult.status === 'fulfilled' ? metadataResult.value : null;
-      const normiesData = normiesResult.status === 'fulfilled' ? normiesResult.value : null;
+      const normies: NormieData | null = normiesResult.status === 'fulfilled' ? normiesResult.value : null;
       const pairedAgent = pairedAgentResult.status === 'fulfilled' ? pairedAgentResult.value : null;
 
       // Check for ERC-8048 agent-binding (depends on metadata, but fast if absent)
       const binding = await resolveBinding(chainKey, agentId, (metadata as any)?.['agent-binding'] ?? undefined);
 
-      // Build card with enhanced data
+      // Build card — prefer ERC-8004 metadata, fall back to Normies API
       const card: Erc8004Card = {
         agentId,
         chain: chainKey,
         registry: chain.registry,
         agentURI: tokenUri,
         owner,
-        name: metadata?.name || normiesData?.name || null,
-        description: metadata?.description || normiesData?.description || null,
-        image: metadata?.image || normiesData?.image || null,
-        services: metadata?.services || normiesData?.services || null,
-        skills: metadata?.skills || normiesData?.skills || null,
-        a2aEndpoint: metadata?.links?.a2aCard || normiesData?.a2a_endpoint || null,
-        x402Support: metadata?.x402Support ?? normiesData?.x402_support ?? null,
+        name: metadata?.name || normies?.metadata?.name || null,
+        description: metadata?.description || normies?.metadata?.description || null,
+        image: metadata?.image || normies?.imageUrl || null,
+        services: metadata?.services || null,
+        skills: metadata?.skills || null,
+        a2aEndpoint: metadata?.links?.a2aCard || null,
+        x402Support: metadata?.x402Support ?? null,
         explorerUrl: `${chain.explorer}/address/${chain.registry}`,
         binding,
-        pairedAgent
+        pairedAgent,
+        normies: normies ?? null,
       };
 
       // Validate the card
