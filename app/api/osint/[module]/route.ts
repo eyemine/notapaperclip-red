@@ -44,6 +44,7 @@ interface AgentFootprint {
     agentCardUrl: string | null;
     nftImage: string | null;
     nftImageSource: 'paired' | 'beacon' | null;
+    pairedNftInfo: { nftType: string; tokenId: string; collectionName?: string } | null;
     ensSocial: {
       name: string | null;
       description: string | null;
@@ -380,10 +381,11 @@ async function analyzeFootprint(agent: string, chain?: string): Promise<AgentFoo
   // ─── PHASE 1: ghostagent.ninja agent-lookup + agent-card (parallel) — only for ecosystem agents ───
   // Skip if we already have identity from ERC-8004 registry (external agents like Normies)
   let agentCardImage: string | null = null;
+  let pairedNftInfo: { nftType: string; tokenId: string; collectionName?: string } | null = null;
   if (!identity || dataSource !== 'erc8004-registry') {
     const agentNameSimple = typeof agent === 'string' && !agent.startsWith('erc8004:') && !agent.startsWith('#') ? agent : null;
     try {
-      const [lookupRes, cardRes] = await Promise.allSettled([
+      const [lookupRes, cardRes, byoRes] = await Promise.allSettled([
         fetch(`${GHOSTAGENT_LOOKUP_URL}?q=${encodeURIComponent(agent)}`, {
           method: 'GET',
           headers: { 'Accept': 'application/json' },
@@ -393,6 +395,14 @@ async function analyzeFootprint(agent: string, chain?: string): Promise<AgentFoo
           ? fetch(`https://ghostagent.ninja/api/agent-card?name=${encodeURIComponent(agentNameSimple)}`, {
               headers: { 'Accept': 'application/json' },
               signal: AbortSignal.timeout(5000),
+            })
+          : Promise.resolve(null),
+        agentNameSimple
+          ? fetch(WORKER_URL, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ action: 'kvGet', key: `byo-origin-image:${agentNameSimple}` }),
+              signal: AbortSignal.timeout(4000),
             })
           : Promise.resolve(null),
       ]);
@@ -411,6 +421,27 @@ async function analyzeFootprint(agent: string, chain?: string): Promise<AgentFoo
       if (cardRes.status === 'fulfilled' && cardRes.value && cardRes.value.ok) {
         const cardData = await cardRes.value.json() as { image?: string };
         if (cardData.image) agentCardImage = cardData.image;
+      }
+
+      if (byoRes.status === 'fulfilled' && byoRes.value && byoRes.value.ok) {
+        try {
+          const byoData = await byoRes.value.json() as { value?: string | null };
+          if (byoData.value) {
+            const parsed = JSON.parse(byoData.value) as {
+              imageUrl?: string;
+              nftType?: string;
+              tokenId?: string | number;
+              collectionName?: string;
+            };
+            if (parsed.nftType && parsed.tokenId != null) {
+              pairedNftInfo = {
+                nftType: parsed.nftType,
+                tokenId: String(parsed.tokenId),
+                collectionName: parsed.collectionName,
+              };
+            }
+          }
+        } catch { /* non-fatal */ }
       }
     } catch {
       // non-fatal
@@ -717,8 +748,9 @@ async function analyzeFootprint(agent: string, chain?: string): Promise<AgentFoo
       agentCardUrl,
       nftImage: identity?.image || agentCardImage || null,
       nftImageSource: (identity?.image || agentCardImage)
-        ? (identity?.byoPairedImage ? 'paired' : 'beacon')
+        ? (identity?.byoPairedImage || pairedNftInfo ? 'paired' : 'beacon')
         : null,
+      pairedNftInfo: pairedNftInfo ?? null,
       ensSocial: ensSocial ?? null,
     },
     spendProfile,

@@ -405,13 +405,22 @@ function Erc8004FeedInner() {
               {/* Links row */}
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem 1rem', paddingTop: '0.35rem', borderTop: '1px solid var(--border)' }}>
                 <a href={`https://ghostagent.ninja/agent/${resolvedName}`} target="_blank" rel="noopener noreferrer"
-                  style={{ fontSize: '0.72rem', color: 'var(--red)', fontWeight: 600, textDecoration: 'none' }}>Profile ↗</a>
+                  style={{ fontSize: '0.72rem', color: '#001f5b', fontWeight: 600, textDecoration: 'none' }}>GhostAgent Profile ↗</a>
                 {agentIdentity?.erc8004?.base ? (
                   <a href={`https://8004agents.ai/base/agent/${agentIdentity.erc8004.base.agentId}#metadata`} target="_blank" rel="noopener noreferrer"
-                    style={{ fontSize: '0.72rem', color: 'var(--red)', fontWeight: 600, textDecoration: 'none' }}>ERC-8004 Card ↗</a>
+                    style={{ fontSize: '0.72rem', color: '#60a5fa', fontWeight: 600, textDecoration: 'none' }}>ERC-8004 Card ↗</a>
                 ) : (
                   <a href={`https://ghostagent.ninja/api/agent-card?agent=${resolvedName}`} target="_blank" rel="noopener noreferrer"
-                    style={{ fontSize: '0.72rem', color: 'var(--red)', fontWeight: 600, textDecoration: 'none' }}>ERC-8004 Card ↗</a>
+                    style={{ fontSize: '0.72rem', color: '#60a5fa', fontWeight: 600, textDecoration: 'none' }}>ERC-8004 Card ↗</a>
+                )}
+                {resolvedId && (
+                  <a
+                    href={`https://notapaperclip.red/osint?mode=token&agent=${resolvedId}&chain=${agentIdentity?.erc8004?.gnosis ? 'gnosis' : agentIdentity?.erc8004?.base ? 'base' : 'gnosis'}`}
+                    target="_blank" rel="noopener noreferrer"
+                    style={{ fontSize: '0.72rem', color: 'var(--red)', fontWeight: 600, textDecoration: 'none' }}
+                    title="Open in OSINT Intelligence">
+                    OSINT ↗
+                  </a>
                 )}
                 <a href={`/a2a?agent=${encodeURIComponent(resolvedName ?? '')}`} target="_blank" rel="noopener noreferrer"
                   style={{ fontSize: '0.72rem', color: 'var(--red)', fontWeight: 600, textDecoration: 'none' }}>A2A Card ↗</a>

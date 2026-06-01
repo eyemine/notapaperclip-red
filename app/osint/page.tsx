@@ -27,6 +27,7 @@ interface FootprintData {
     hasX402Capability: boolean;
     nftImage?: string | null;
     nftImageSource?: 'paired' | 'beacon' | null;
+    pairedNftInfo?: { nftType: string; tokenId: string; collectionName?: string } | null;
     ensSocial?: {
       ensName: string | null;
       name: string | null;
@@ -611,6 +612,22 @@ function OSINTDashboardContent() {
                           </div>
                         </div>
                       )}
+                      {footprint.offChain.pairedNftInfo && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <span style={{ color: 'var(--muted)' }}>Paired NFT</span>
+                          <span style={{ color: 'var(--text)', fontSize: '0.8rem' }}>
+                            {footprint.offChain.pairedNftInfo.collectionName
+                              ? `${footprint.offChain.pairedNftInfo.collectionName} #${footprint.offChain.pairedNftInfo.tokenId}`
+                              : `${footprint.offChain.pairedNftInfo.nftType} #${footprint.offChain.pairedNftInfo.tokenId}`}
+                          </span>
+                        </div>
+                      )}
+                      {!footprint.offChain.pairedNftInfo && footprint.offChain.nftImageSource === 'beacon' && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <span style={{ color: 'var(--muted)' }}>NFT Source</span>
+                          <span style={{ color: 'var(--muted)', fontSize: '0.8rem' }}>Beacon (not paired)</span>
+                        </div>
+                      )}
                       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                         <span style={{ color: 'var(--muted)' }}>x402 Ready</span>
                         <span style={{ color: footprint.offChain.hasX402Capability ? 'var(--green)' : 'var(--amber)' }}>
@@ -814,23 +831,23 @@ function OSINTDashboardContent() {
             )}
 
             {/* Exposure */}
-            {exposure && (
+            {(exposure || footprint) && (
               <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: 'var(--card)', padding: '1.5rem' }}>
                 <h2 style={{ marginBottom: '1rem', fontSize: '1.25rem', fontWeight: 700, color: 'var(--text)' }}>Exposure Assessment</h2>
                 
                 <div style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: 'var(--bg-alt)', padding: '1rem' }}>
                   <div>
                     <div style={{ fontSize: '0.875rem', color: 'var(--muted)' }}>Overall Risk Score</div>
-                    <div style={{ fontSize: '2rem', fontWeight: 700, color: exposure.riskLevel === 'low' ? 'var(--green)' : exposure.riskLevel === 'medium' ? 'var(--amber)' : 'var(--red)' }}>
-                      {exposure.score}/100
+                    <div style={{ fontSize: '2rem', fontWeight: 700, color: exposure ? (exposure.riskLevel === 'low' ? 'var(--green)' : exposure.riskLevel === 'medium' ? 'var(--amber)' : 'var(--red)') : 'var(--muted)' }}>
+                      {exposure ? `${exposure.score}/100` : '––/100'}
                     </div>
                   </div>
-                  <span className={`pill ${exposure.riskLevel === 'low' ? 'pill-green' : exposure.riskLevel === 'medium' ? 'pill-amber' : 'pill-red'}`}>
-                    {exposure.riskLevel.toUpperCase()}
+                  <span className={`pill ${exposure ? (exposure.riskLevel === 'low' ? 'pill-green' : exposure.riskLevel === 'medium' ? 'pill-amber' : 'pill-red') : 'pill-grey'}`}>
+                    {exposure ? exposure.riskLevel.toUpperCase() : '–––'}
                   </span>
                 </div>
 
-                {exposure.exposures.length > 0 && (
+                {exposure && exposure.exposures.length > 0 && (
                   <div>
                     <h3 style={{ marginBottom: '0.75rem', fontSize: '0.875rem', fontWeight: 600, color: 'var(--red)' }}>Identified Exposures</h3>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
@@ -850,7 +867,7 @@ function OSINTDashboardContent() {
             )}
 
             {/* x402 Payment Capabilities */}
-            {x402 && (
+            {(x402 || footprint) && (
               <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: 'var(--card)', padding: '1.5rem' }}>
                 <h2 style={{ marginBottom: '1rem', fontSize: '1.25rem', fontWeight: 700, color: 'var(--text)' }}>x402 Payment Capabilities</h2>
                 <p style={{ marginBottom: '1rem', fontSize: '0.75rem', color: 'var(--muted)' }}>
@@ -860,15 +877,17 @@ function OSINTDashboardContent() {
                 <div style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: 'var(--bg-alt)', padding: '1rem' }}>
                   <div>
                     <div style={{ fontSize: '0.875rem', color: 'var(--muted)' }}>x402 Readiness Score</div>
-                    <div style={{ fontSize: '2rem', fontWeight: 700, color: x402.footprint.readiness === 'ready' ? 'var(--green)' : x402.footprint.readiness === 'partial' ? 'var(--amber)' : 'var(--red)' }}>
-                      {x402.footprint.score}/100
+                    <div style={{ fontSize: '2rem', fontWeight: 700, color: x402 ? (x402.footprint.readiness === 'ready' ? 'var(--green)' : x402.footprint.readiness === 'partial' ? 'var(--amber)' : 'var(--red)') : 'var(--muted)' }}>
+                      {x402 ? `${x402.footprint.score}/100` : '––/100'}
                     </div>
                   </div>
-                  <span className={`pill ${x402.footprint.readiness === 'ready' ? 'pill-green' : x402.footprint.readiness === 'partial' ? 'pill-amber' : 'pill-red'}`}>
-                    {x402.footprint.readiness.toUpperCase().replace('_', ' ')}
+                  <span className={`pill ${x402 ? (x402.footprint.readiness === 'ready' ? 'pill-green' : x402.footprint.readiness === 'partial' ? 'pill-amber' : 'pill-red') : 'pill-grey'}`}>
+                    {x402 ? x402.footprint.readiness.toUpperCase().replace('_', ' ') : 'NOT READY'}
                   </span>
                 </div>
 
+                {x402 && (
+                <div>
                 <div style={{ display: 'grid', gap: '1rem', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', marginBottom: '1.5rem' }}>
                   <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: 'var(--bg-alt)', padding: '1rem' }}>
                     <div style={{ fontSize: '0.75rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '0.5rem' }}>x402 Support</div>
@@ -898,7 +917,7 @@ function OSINTDashboardContent() {
 
                 <div>
                   <h3 style={{ marginBottom: '0.75rem', fontSize: '0.875rem', fontWeight: 600, color: 'var(--red)' }}>Agent Payment Endpoints</h3>
-                  {x402.x402.paymentEndpoints.length > 0 ? (
+                  {x402 && x402.x402.paymentEndpoints.length > 0 ? (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                       {x402.x402.paymentEndpoints.slice(0, 5).map((ep, i) => (
                         <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: ep.supportsX402 ? 'var(--green-bg)' : 'var(--bg-alt)', padding: '0.5rem 1rem', fontSize: '0.875rem' }}>
@@ -920,6 +939,7 @@ function OSINTDashboardContent() {
                     </div>
                   )}
                 </div>
+                </div>)}
               </div>
             )}
 
