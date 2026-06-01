@@ -3,7 +3,25 @@
 import { useState, useEffect, Suspense, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Erc8004CardPanel } from '../components/Erc8004CardPanel';
+import { Erc8048RegistryPanel } from '../components/Erc8048RegistryPanel';
 import { CHAIN_ORDER, CHAINS } from '../../lib/chains';
+
+interface Erc8048AuditData {
+  tokenId: number;
+  registry: string;
+  chain: string;
+  explorer: string;
+  entries: Array<{
+    key: string;
+    valueHex: string;
+    valueText: string | null;
+    verified: boolean;
+    setAtBlock: number | null;
+    setAt: number | null;
+    operator: string | null;
+    txHash: string | null;
+  }>;
+}
 
 type LookupMode = 'agent' | 'token' | 'email' | 'erc8048';
 
@@ -193,6 +211,7 @@ function OSINTDashboardContent() {
   const [exposure, setExposure] = useState<ExposureData | null>(null);
   const [x402, setX402] = useState<X402Data | null>(null);
   const [glassbox, setGlassbox] = useState<GlassboxData | null>(null);
+  const [erc8048Audit, setErc8048Audit] = useState<Erc8048AuditData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -274,36 +293,26 @@ function OSINTDashboardContent() {
     if (!q) return;
 
     if (mode === 'erc8048') {
-      // ERC-8048 metadata search - separate logic
+      // ERC-8048 registry audit - neutral on-chain key-value sweep
       setLoading(true);
       setError('');
-      setFootprint(null); setRelations(null); setExposure(null); setX402(null); setGlassbox(null);
+      setFootprint(null); setRelations(null); setExposure(null); setX402(null); setGlassbox(null); setErc8048Audit(null);
 
       fetch('/api/erc8048/search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          mode: 'byAgentId',
-          agentId: parseInt(q),
+          mode: 'auditTokenId',
+          tokenId: q,
         }),
       })
         .then(r => r.json())
         .then(d => {
           setLoading(false);
-          if (d.success && d.results) {
-            // Display ERC-8048 metadata in the footprint area
-            const result = d.results[0];
-            if (result) {
-              setFootprint({
-                agent: q,
-                onChain: { safeAddress: null, tbaAddress: null, totalTransactions: 0, firstSeen: null, lastSeen: null, balances: [] },
-                offChain: { tld: '', tier: '', principal: null, surgeScore: 0, mcpServers: [], gnsName: null, hasX402Capability: false },
-                exposure: { hasPublicEndpoints: false, hasMCPServers: false, hasGNSName: false, hasX402Capability: false, riskLevel: 'low' },
-                erc8048Metadata: result.metadata,
-              } as any);
-            }
+          if (d.success && d.audit) {
+            setErc8048Audit(d.audit as Erc8048AuditData);
           } else {
-            setError(d.error || 'No ERC-8048 metadata found');
+            setError(d.error || 'No ERC-8048 registry state found');
           }
         })
         .catch((e) => {
@@ -336,13 +345,13 @@ function OSINTDashboardContent() {
             { key: 'token', label: 'By ERC-8004 Token ID' },
             { key: 'agent', label: 'By GhostAgent Name' },
             { key: 'email', label: 'By NFTmail Address' },
-            { key: 'erc8048', label: 'ERC-8048 Metadata' },
+            { key: 'erc8048', label: 'EIP-8048 Registry State' },
           ] as { key: LookupMode; label: string }[]
         ).map(({ key, label }) => (
           <button key={key}
             className={mode === key ? 'btn-primary' : 'btn-secondary'}
             style={{ fontSize: '0.8rem', padding: '0.4rem 0.875rem' }}
-            onClick={() => { setMode(key); setError(''); setAgentName(''); }}
+            onClick={() => { setMode(key); setError(''); setAgentName(''); setErc8048Audit(null); }}
           >
             {label}
           </button>
@@ -378,7 +387,7 @@ function OSINTDashboardContent() {
           placeholder={
             mode === 'email'  ? 'e.g. ghostagent_@nftmail.box'
             : mode === 'agent' ? 'GhostAgent name, e.g. ghostagent'
-            : mode === 'erc8048' ? 'ERC-8004 agent ID, e.g. 3199'
+            : mode === 'erc8048' ? 'Token ID to audit on the ERC-8048 registry, e.g. 3199'
             : `ERC-8004 token ID on ${CHAINS[chain]?.label || 'Gnosis'}, e.g. 3199`
           }
           className="search-input"
@@ -508,6 +517,13 @@ function OSINTDashboardContent() {
           </button>
         </div>
       )}
+
+        {/* ERC-8048 Registry State — neutral, independent audit panel */}
+        {erc8048Audit && (
+          <div style={{ marginBottom: '1.5rem' }}>
+            <Erc8048RegistryPanel audit={erc8048Audit} />
+          </div>
+        )}
 
         {/* Results */}
         {(footprint || relations || exposure || x402) && (
@@ -1083,7 +1099,7 @@ function OSINTDashboardContent() {
         )}
 
         {/* Empty state */}
-      {!loading && !footprint && !relations && !exposure && !x402 && !glassbox && !error && (
+      {!loading && !footprint && !relations && !exposure && !x402 && !glassbox && !erc8048Audit && !error && (
         <div className="alert alert-info" style={{ marginTop: '1rem' }}>
           Enter an agent identifier to start OSINT analysis. The oracle will retrieve on-chain identity, off-chain metadata, network relations, exposure assessment, and glassbox transparency data.
         </div>
