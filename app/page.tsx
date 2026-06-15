@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, Suspense } from 'react';
+import { useState, useEffect, useCallback, useRef, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { CHAIN_ORDER, CHAINS } from '../lib/chains';
@@ -80,8 +80,10 @@ function Erc8004FeedInner() {
   const [loading, setLoading]         = useState(true);
   const [lastRefresh, setRefresh]     = useState(0);
 
-  // Sync URL params with state
+  // Sync URL params with state (skip initial mount)
+  const isFirstMount = useRef(true);
   useEffect(() => {
+    if (isFirstMount.current) { isFirstMount.current = false; return; }
     const params = new URLSearchParams();
     if (chain && chain !== 'all') params.set('chain', chain);
     if (agentFilter) params.set('agent', agentFilter);
