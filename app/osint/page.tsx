@@ -837,7 +837,7 @@ function OSINTDashboardContent() {
 
                 {relations.handshakes.length > 0 && (
                   <div>
-                    <h3 style={{ marginBottom: '0.75rem', fontSize: '0.875rem', fontWeight: 600, color: 'var(--red)' }}>A2A Handshakes</h3>
+                    <h3 style={{ marginBottom: '0.75rem', fontSize: '0.875rem', fontWeight: 600, color: 'var(--red)' }}>Shared Safe Co-Agents</h3>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                       {relations.handshakes.slice(0, 5).map((h, i) => (
                         <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: 'var(--bg-alt)', padding: '0.5rem 1rem', fontSize: '0.875rem' }}>
