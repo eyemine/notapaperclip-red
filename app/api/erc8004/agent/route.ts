@@ -8,37 +8,9 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-
-const CHAINS: Record<string, { label: string; chainId: number; registry: string; rpc: string; explorer: string }> = {
-  ethereum: {
-    label:    'Ethereum',
-    chainId:  1,
-    registry: '0x8004A169FB4a3325136EB29fA0ceB6D2e539a432',
-    rpc:      'https://ethereum-rpc.publicnode.com',
-    explorer: 'https://etherscan.io',
-  },
-  gnosis: {
-    label:    'Gnosis',
-    chainId:  100,
-    registry: '0x8004A169FB4a3325136EB29fA0ceB6D2e539a432',
-    rpc:      'https://rpc.gnosischain.com',
-    explorer: 'https://gnosisscan.io',
-  },
-  base: {
-    label:    'Base',
-    chainId:  8453,
-    registry: '0x8004A169FB4a3325136EB29fA0ceB6D2e539a432',
-    rpc:      'https://mainnet.base.org',
-    explorer: 'https://basescan.org',
-  },
-  baseSepolia: {
-    label:    'Base Sepolia',
-    chainId:  84532,
-    registry: '0x8004A818BFB912233c491871b3d84c89A494BD9e',
-    rpc:      'https://sepolia.base.org',
-    explorer: 'https://sepolia.basescan.org',
-  },
-};
+import { agentService } from '@/lib/agent-service';
+import { CHAINS } from '@/lib/chains';
+import { validateErc8004Card } from '@/lib/validation';
 
 function pad32(hex: string) {
   return hex.replace('0x', '').padStart(64, '0');
@@ -99,53 +71,77 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Missing or invalid id (must be a number)' }, { status: 400 });
   }
 
-  const chain = CHAINS[chainKey] ?? CHAINS.gnosis;
   const agentId = parseInt(idParam, 10);
-  const tokenIdHex = pad32(agentId.toString(16));
+  const chain = CHAINS[chainKey];
 
-  // ownerOf(uint256)
-  const ownerRaw = await ethCall(chain.rpc, chain.registry, `0x6352211e${tokenIdHex}`);
-  if (!ownerRaw) {
+  if (!chain) {
+    return NextResponse.json({ error: `Invalid chain: ${chainKey}` }, { status: 400 });
+  }
+
+  try {
+    // Use the unified agent service
+    const card = await agentService.getErc8004Card(chainKey, agentId);
+    
+    if (!card) {
+      return NextResponse.json({
+        found: false,
+        agentId,
+        chain: chain.label,
+        chainId: chain.chainId,
+        error: `Agent #${agentId} not found on ${chain.label}`,
+      }, { status: 404 });
+    }
+
+    // Validate the card before returning
+    const validation = validateErc8004Card(card);
+    if (!validation.isValid) {
+      return NextResponse.json({
+        found: false,
+        agentId,
+        chain: chain.label,
+        chainId: chain.chainId,
+        error: `Invalid agent data: ${validation.errors.join(', ')}`,
+      }, { status: 500 });
+    }
+
+    // Detect ecosystem from tokenURI
+    let ecosystem: 'ghostagent' | 'olas' | 'unknown' = 'unknown';
+    if (card.agentURI) {
+      if (card.agentURI.includes('olas') || card.agentURI.includes('autonolas')) ecosystem = 'olas';
+      else if (card.agentURI.includes('lighthouse') || card.agentURI.includes('ghostagent') || card.agentURI.includes('ipfs')) ecosystem = 'ghostagent';
+    }
+
     return NextResponse.json({
-      found:    false,
+      found: true,
       agentId,
-      chain:    chain.label,
-      chainId:  chain.chainId,
-      error:    `Agent #${agentId} not found on ${chain.label}`,
-    }, { status: 404 });
+      chain: chain.label,
+      chainId: chain.chainId,
+      registry: chain.registry,
+      owner: card.owner,
+      tokenUri: card.agentURI,
+      tokenUriResolved: card.agentURI ? resolveIpfsUrl(card.agentURI) : null,
+      metadata: {
+        name: card.name,
+        description: card.description,
+        image: card.image,
+        skills: card.skills,
+        services: card.services,
+        a2aEndpoint: card.a2aEndpoint,
+        x402Support: card.x402Support,
+      },
+      ecosystem,
+      explorerNft: `${chain.explorer}/nft/${chain.registry}/${agentId}`,
+      explorerOwner: `${chain.explorer}/address/${card.owner}`,
+      pairedAgent: card.pairedAgent,
+    });
+  } catch (error) {
+    console.error(`Error fetching ERC-8004 agent ${agentId} on ${chainKey}:`, error);
+    return NextResponse.json({
+      found: false,
+      agentId,
+      chain: chain.label,
+      chainId: chain.chainId,
+      error: 'Failed to fetch agent data',
+    }, { status: 500 });
   }
-
-  const owner = decodeAddress(ownerRaw);
-
-  // tokenURI(uint256)
-  const tokenUriRaw = await ethCall(chain.rpc, chain.registry, `0xc87b56dd${tokenIdHex}`);
-  const tokenUri = tokenUriRaw ? decodeString(tokenUriRaw) : null;
-
-  // Resolve metadata from tokenURI if available
-  let metadata: Record<string, unknown> | null = null;
-  if (tokenUri) {
-    metadata = await fetchMetadata(tokenUri);
-  }
-
-  // Detect ecosystem from tokenURI
-  let ecosystem: 'ghostagent' | 'olas' | 'unknown' = 'unknown';
-  if (tokenUri) {
-    if (tokenUri.includes('olas') || tokenUri.includes('autonolas')) ecosystem = 'olas';
-    else if (tokenUri.includes('lighthouse') || tokenUri.includes('ghostagent') || tokenUri.includes('ipfs')) ecosystem = 'ghostagent';
-  }
-
-  return NextResponse.json({
-    found:       true,
-    agentId,
-    chain:       chain.label,
-    chainId:     chain.chainId,
-    registry:    chain.registry,
-    owner,
-    tokenUri,
-    tokenUriResolved: tokenUri ? resolveIpfsUrl(tokenUri) : null,
-    metadata,
-    ecosystem,
-    explorerNft: `${chain.explorer}/nft/${chain.registry}/${agentId}`,
-    explorerOwner: `${chain.explorer}/address/${owner}`,
-  });
 }
